@@ -1,0 +1,140 @@
+name: release
+
+# Pushing a version tag (v4.0.0, v4.0.0-dev.1, ...) releases the package: the
+# test suite runs, the package is published to npm through trusted publishing
+# (OIDC, with provenance), and the GitHub release is created from the matching
+# CHANGELOG.md section. The tag must equal "v" + the package.json version.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate the tag
+        id: tag
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' does not match the package.json version $version: bump the version and tag v$version, or tag the commit that has it."
+            exit 1
+          fi
+
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if [[ ! "$version" =~ $semver ]]; then
+            echo "::error::package.json version '$version' is not a semantic version."
+            exit 1
+          fi
+
+          prerelease=false
+          [[ "${version%%+*}" == *-* ]] && prerelease=true
+
+          {
+            echo "version=$version"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing $GITHUB_REF_NAME (prerelease: $prerelease)"
+
+  tests:
+    name: Tests
+    uses: ./.github/workflows/tests.yml
+
+  release:
+    name: Release
+    needs: [validate, tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: write
+      id-token: write # npm trusted publishing and provenance
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install npm with trusted publishing support
+        run: |
+          npm install --global npm@^11.5.1
+          npm --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          DIST_TAG: ${{ needs.validate.outputs.prerelease == 'true' && 'next' || 'latest' }}
+          # Only for the very first publish: npm can't attach a trusted publisher to a package
+          # that doesn't exist yet. Leave the secret unset afterwards so OIDC is used.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          name="$(node -p 'require("./package.json").name')"
+          if npm view "$name@$VERSION" version > /dev/null 2>&1; then
+            echo "$name@$VERSION is already on npm; skipping."
+            exit 0
+          fi
+
+          if [[ -n "$NPM_TOKEN" ]]; then
+            echo "::notice::Publishing with the NPM_TOKEN secret. Configure the trusted publisher on npmjs.com, then delete the secret."
+            npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+          fi
+
+          npm publish --provenance --access public --tag "$DIST_TAG"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "The $GITHUB_REF_NAME release already exists; skipping."
+            exit 0
+          fi
+
+          # Release notes: the CHANGELOG.md section whose heading is "## v1.2.3" or
+          # "## v1.2.3 - <date>", up to the next "## " heading.
+          notes="$RUNNER_TEMP/release-notes.md"
+          if [[ -f CHANGELOG.md ]]; then
+            awk -v tag="$GITHUB_REF_NAME" -v version="$VERSION" '
+              /^## / { if (found) exit; found = ($2 == tag || $2 == version); next }
+              found { print }
+            ' CHANGELOG.md > "$notes"
+          fi
+
+          args=(--verify-tag --title "$GITHUB_REF_NAME")
+          if [[ -f "$notes" ]] && grep -q '[^[:space:]]' "$notes"; then
+            args+=(--notes-file "$notes")
+          else
+            echo "::warning::CHANGELOG.md has no '## $GITHUB_REF_NAME' section; using generated release notes."
+            args+=(--generate-notes)
+          fi
+          [[ "$PRERELEASE" == true ]] && args+=(--prerelease)
+
+          gh release create "$GITHUB_REF_NAME" "${args[@]}"
