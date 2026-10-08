@@ -1,0 +1,153 @@
+{
+  "name": "@laranex/myanmar-payments",
+  "version": "4.0.0",
+  "description": "Node.js and TypeScript SDK for Myanmar payment gateways: KBZ Pay, Wave Money, AYA Payment Gateway, Yoma MMQR and CyberSource.",
+  "keywords": [
+    "laranex",
+    "node-myanmar-payments",
+    "myanmar",
+    "payments",
+    "payment-gateway",
+    "kbzpay",
+    "wave-money",
+    "wavepay",
+    "aya-pay",
+    "yoma",
+    "mmqr",
+    "cybersource"
+  ],
+  "homepage": "https://laranex.vercel.app/node-myanmar-payments",
+  "bugs": {
+    "url": "https://github.com/laranex/node-myanmar-payments/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/laranex/node-myanmar-payments.git"
+  },
+  "license": "MIT",
+  "author": "Nay Thu Khant <naythukhant644@gmail.com>",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    },
+    "./kbz-pay": {
+      "import": {
+        "types": "./dist/esm/kbz-pay/index.d.ts",
+        "default": "./dist/esm/kbz-pay/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/kbz-pay/index.d.ts",
+        "default": "./dist/cjs/kbz-pay/index.js"
+      }
+    },
+    "./wave-money": {
+      "import": {
+        "types": "./dist/esm/wave-money/index.d.ts",
+        "default": "./dist/esm/wave-money/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/wave-money/index.d.ts",
+        "default": "./dist/cjs/wave-money/index.js"
+      }
+    },
+    "./aya-pay": {
+      "import": {
+        "types": "./dist/esm/aya-pay/index.d.ts",
+        "default": "./dist/esm/aya-pay/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/aya-pay/index.d.ts",
+        "default": "./dist/cjs/aya-pay/index.js"
+      }
+    },
+    "./yoma-mmqr": {
+      "import": {
+        "types": "./dist/esm/yoma-mmqr/index.d.ts",
+        "default": "./dist/esm/yoma-mmqr/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/yoma-mmqr/index.d.ts",
+        "default": "./dist/cjs/yoma-mmqr/index.js"
+      }
+    },
+    "./cyber-source": {
+      "import": {
+        "types": "./dist/esm/cyber-source/index.d.ts",
+        "default": "./dist/esm/cyber-source/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/cyber-source/index.d.ts",
+        "default": "./dist/cjs/cyber-source/index.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/cjs/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "kbz-pay": [
+        "./dist/cjs/kbz-pay/index.d.ts"
+      ],
+      "wave-money": [
+        "./dist/cjs/wave-money/index.d.ts"
+      ],
+      "aya-pay": [
+        "./dist/cjs/aya-pay/index.d.ts"
+      ],
+      "yoma-mmqr": [
+        "./dist/cjs/yoma-mmqr/index.d.ts"
+      ],
+      "cyber-source": [
+        "./dist/cjs/cyber-source/index.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "dist",
+    "skills",
+    "CHANGELOG.md",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "check:package": "publint --strict && attw --pack .",
+    "prepack": "npm run build",
+    "test:dist": "node scripts/smoke.mjs && node scripts/smoke.cjs"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^20.19.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^10.12.0",
+    "prettier": "^3.9.9",
+    "publint": "^0.3.25",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
