@@ -139,7 +139,7 @@
     "eslint": "^10.12.0",
     "prettier": "^3.9.9",
     "publint": "^0.3.25",
-    "typescript": "~5.9.3",
+    "typescript": "~7.0.2",
     "typescript-eslint": "^8.71.1",
     "vitest": "^4.1.11"
   },
