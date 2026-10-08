@@ -109,7 +109,7 @@ jobs:
           # "latest", so the npm page and a plain `npm install` show the newest build.
           dist_tag=latest
           if [[ "$PRERELEASE" == true ]]; then
-            stable="$(npm view "$name" versions --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let v=[];try{v=[].concat(JSON.parse(s||"[]"))}catch{};console.log(v.some(x=>!x.includes("-"))?"yes":"no")})')"
+            stable="$(npm view "$name" versions --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let v=[];try{v=[].concat(JSON.parse(s||"[]")).filter(x=>typeof x==="string")}catch{};console.log(v.some(x=>!x.includes("-"))?"yes":"no")})')"
             [[ "$stable" == yes ]] && dist_tag=next
           fi
           echo "Publishing $name@$VERSION with dist-tag $dist_tag"
