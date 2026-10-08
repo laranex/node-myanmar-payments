@@ -57,7 +57,7 @@ Pushing a version tag releases the package: `.github/workflows/release.yml` runs
    git push origin v4.1.0
    ```
 
-That's it. The tag must equal `v` + the `package.json` version, or the release fails before anything is published. Pre-release versions (`4.1.0-rc.1`) are published under the `next` dist-tag and marked as GitHub pre-releases; everything else goes to `latest`. `CHANGELOG.md` is written by hand before tagging; nothing commits it back after the release.
+That's it. The tag must equal `v` + the `package.json` version, or the release fails before anything is published. Pre-release versions (`4.1.0-rc.1`) are published under `next` and marked as GitHub pre-releases; stable versions go to `latest`. Until the first stable version exists, pre-releases take `latest` too and the workflow moves `next` along with them (this needs "Allow npm dist-tag" on the trusted publisher). `CHANGELOG.md` is written by hand before tagging; nothing commits it back after the release.
 
 One-time setup: publishing uses npm trusted publishing (OIDC), so no npm token is stored. npm only offers the trusted publisher setting once the package exists, so the first release is bootstrapped from CI with a temporary token:
 

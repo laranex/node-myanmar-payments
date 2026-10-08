@@ -77,7 +77,7 @@ jobs:
 
       - name: Install npm with trusted publishing support
         run: |
-          npm install --global npm@^11.5.1
+          npm install --global npm@^11.21.0
           npm --version
 
       - name: Install dependencies
@@ -89,7 +89,7 @@ jobs:
       - name: Publish to npm
         env:
           VERSION: ${{ needs.validate.outputs.version }}
-          DIST_TAG: ${{ needs.validate.outputs.prerelease == 'true' && 'next' || 'latest' }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
           # Only for the very first publish: npm can't attach a trusted publisher to a package
           # that doesn't exist yet. Leave the secret unset afterwards so OIDC is used.
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -105,7 +105,21 @@ jobs:
             npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
           fi
 
-          npm publish --provenance --access public --tag "$DIST_TAG"
+          # Pre-releases go to "next". Until the first stable version exists they also take
+          # "latest", so the npm page and a plain `npm install` show the newest build.
+          dist_tag=latest
+          if [[ "$PRERELEASE" == true ]]; then
+            stable="$(npm view "$name" versions --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let v=[];try{v=[].concat(JSON.parse(s||"[]"))}catch{};console.log(v.some(x=>!x.includes("-"))?"yes":"no")})')"
+            [[ "$stable" == yes ]] && dist_tag=next
+          fi
+          echo "Publishing $name@$VERSION with dist-tag $dist_tag"
+          npm publish --provenance --access public --tag "$dist_tag"
+          # Keep "next" on the newest pre-release too. Needs "Allow npm dist-tag" on the
+          # trusted publisher; without it the release still succeeds and "next" stays put.
+          if [[ "$dist_tag" == latest && "$PRERELEASE" == true ]]; then
+            npm dist-tag add "$name@$VERSION" next \
+              || echo "::warning::Could not move 'next' to $VERSION. Enable 'Allow npm dist-tag' on the npm trusted publisher."
+          fi
 
       - name: Create the GitHub release
         env:
