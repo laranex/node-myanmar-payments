@@ -16,3 +16,15 @@ updates:
       interval: 'weekly'
     labels:
       - 'dependencies'
+    ignore:
+      # The package supports Node 20, so its types stay on Node 20's API.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # Vitest 5 drops Node 20.
+      - dependency-name: 'vitest'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@vitest/*'
+        update-types: ['version-update:semver-major']
+      # typescript-eslint doesn't support TypeScript 7 yet.
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
