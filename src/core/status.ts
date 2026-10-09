@@ -2,7 +2,7 @@
  * A gateway-independent payment status. Every gateway's own status values are mapped onto these.
  */
 export type PaymentStatus =
-  'successful' | 'pending' | 'failed' | 'cancelled' | 'expired' | 'unknown';
+  'successful' | 'pending' | 'failed' | 'canceled' | 'expired' | 'unknown';
 
 /**
  * The payment statuses, plus helpers.
@@ -20,7 +20,7 @@ export const PaymentStatus = Object.freeze({
   /** The payment was attempted and failed or was rejected. */
   Failed: 'failed',
   /** The payment or order was canceled or closed before completing. */
-  Cancelled: 'cancelled',
+  Canceled: 'canceled',
   /** The payment window ran out before the customer paid. */
   Expired: 'expired',
   /** The gateway sent a status this package does not recognize. Inspect `gatewayStatus`. */
@@ -30,7 +30,7 @@ export const PaymentStatus = Object.freeze({
     'successful',
     'pending',
     'failed',
-    'cancelled',
+    'canceled',
     'expired',
     'unknown',
   ] as const),

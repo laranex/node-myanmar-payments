@@ -120,7 +120,7 @@ const STATUSES: Readonly<Record<string, PaymentStatus>> = {
   WAIT_PAY: 'pending',
   PAYING: 'pending',
   PAY_FAILED: 'failed',
-  ORDER_CLOSED: 'cancelled',
+  ORDER_CLOSED: 'canceled',
   ORDER_EXPIRED: 'expired',
 };
 

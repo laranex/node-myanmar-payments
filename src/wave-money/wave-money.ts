@@ -140,7 +140,7 @@ const STATUSES: Readonly<Record<string, PaymentStatus>> = {
   INSUFFICIENT_BALANCE: 'pending',
   ACCOUNT_LOCKED: 'failed',
   BILL_COLLECTION_FAILED: 'failed',
-  PAYMENT_REQUEST_CANCELLED: 'cancelled',
+  PAYMENT_REQUEST_CANCELLED: 'canceled',
   TRANSACTION_TIMED_OUT: 'expired',
   SCHEDULER_TRANSACTION_TIMED_OUT: 'expired',
 };

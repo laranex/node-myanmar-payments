@@ -21,3 +21,6 @@ Initial release. The version number matches the other Laranex Myanmar payments p
 - Wave Money's sandbox is `https://preprodpayments.wavemoney.io:8107`, with checkout at `https://preprodpayments.wavemoney.io/authenticate`.
 - Agent skill in `skills/node-myanmar-payments` so coding agents use the package correctly; install it with `npx skills add laranex/node-myanmar-payments`.
 - Requires Node.js 20 or higher.
+
+### Changed since the pre-releases
+- `PaymentStatus.Cancelled` is renamed to `PaymentStatus.Canceled` and its value from `'cancelled'` to `'canceled'` (American English), with no alias. Code or stored statuses from the `v4.0.0-dev` pre-releases need the new name; gateway status literals such as Wave Money's `PAYMENT_REQUEST_CANCELLED` are unchanged.
