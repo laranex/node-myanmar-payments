@@ -109,7 +109,7 @@ describe('CyberSource', () => {
     ['REVIEW', 'pending'],
     ['DECLINE', 'failed'],
     ['ERROR', 'failed'],
-    ['CANCEL', 'cancelled'],
+    ['CANCEL', 'canceled'],
     ['accept', 'successful'],
     ['NEW', 'unknown'],
   ])(

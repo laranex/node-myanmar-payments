@@ -268,7 +268,7 @@ describe('KbzPay', () => {
     ['WAIT_PAY', 'pending'],
     ['PAYING', 'pending'],
     ['PAY_FAILED', 'failed'],
-    ['ORDER_CLOSED', 'cancelled'],
+    ['ORDER_CLOSED', 'canceled'],
     ['ORDER_EXPIRED', 'expired'],
     ['SOMETHING_NEW', 'unknown'],
   ])('maps the queryorder trade status %j', async (tradeStatus, status) => {

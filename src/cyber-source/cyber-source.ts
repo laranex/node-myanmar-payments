@@ -132,7 +132,7 @@ const STATUSES: Readonly<Record<string, PaymentStatus>> = {
   REVIEW: 'pending',
   DECLINE: 'failed',
   ERROR: 'failed',
-  CANCEL: 'cancelled',
+  CANCEL: 'canceled',
 };
 
 /**

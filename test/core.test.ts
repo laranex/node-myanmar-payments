@@ -340,14 +340,14 @@ describe('PaymentStatus', () => {
       'successful',
       'pending',
       'failed',
-      'cancelled',
+      'canceled',
       'expired',
       'unknown',
     ]);
     expect(PaymentStatus.values.filter((status) => PaymentStatus.isFinal(status))).toEqual([
       'successful',
       'failed',
-      'cancelled',
+      'canceled',
       'expired',
     ]);
     expect(PaymentFlow).toEqual({ Redirect: 'redirect', Form: 'form', Qr: 'qr', App: 'app' });

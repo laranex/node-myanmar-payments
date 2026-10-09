@@ -91,7 +91,7 @@ try {
 ### Check status and handle errors
 
 - `kbz.status(orderId)`, `aya.status(orderId)` and `yoma.status(reference)` return `PaymentStatusResult` with `status` and `isSuccessful()`. Wave Money and CyberSource have no status API.
-- Statuses: `PaymentStatus.Successful`, `Pending`, `Failed`, `Cancelled`, `Expired`, `Unknown`; `PaymentStatus.isFinal(status)`.
+- Statuses: `PaymentStatus.Successful`, `Pending`, `Failed`, `Canceled`, `Expired`, `Unknown`; `PaymentStatus.isFinal(status)`.
 - Gateway failures throw `ApiError` (`gatewayCode`, `gatewayMessage`, `httpStatus`, `raw`, `cause` for network errors and aborts). All errors extend `PaymentError`.
 
 ## Test your app
