@@ -1,6 +1,6 @@
 {
   "name": "@laranex/myanmar-payments",
-  "version": "4.0.0-dev.2",
+  "version": "4.0.0-dev.3",
   "description": "Node.js SDK for Myanmar payment gateways: KBZ Pay, Wave Money, AYA Pay, Yoma MMQR and CyberSource. Typed TypeScript API, ESM and CommonJS, no runtime dependencies.",
   "keywords": [
     "laranex",
