@@ -362,7 +362,8 @@ export class AyaPay {
         toPlainObject(input),
       );
 
-    const json = decodeBase64(get(input, 'payload'));
+    // Base64 never contains spaces: a space is a `+` that an unencoded query string turned into one.
+    const json = decodeBase64(get(input, 'payload').replace(/ /g, '+'));
     const payload = json === undefined ? undefined : parseJsonObject(json);
     if (payload === undefined) {
       throw fail();

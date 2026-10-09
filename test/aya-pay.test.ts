@@ -279,6 +279,16 @@ describe('AyaPay', () => {
     expect(callback.orderId).toBe('ORD123456');
   });
 
+  it('reads a base64 payload whose + became a space in an unencoded query string', () => {
+    const json = '{"merchOrderId":"ORD>>>","statusCode":"00"}';
+    const query = signed(json, 'ORD>>>:00');
+    expect(query.payload).toContain('+');
+    const callback = gateway().verifyRedirect(
+      new CallbackRequest({ query: `payload=${query.payload}&checkSum=${query.checkSum}` }),
+    );
+    expect(callback.orderId).toBe('ORD>>>');
+  });
+
   it.each([
     [
       'tampered amount',
