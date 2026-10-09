@@ -125,13 +125,16 @@ describe('YomaMmqr', () => {
       ['90', 60],
       [0, 3540],
       ['bad', 3540],
+      ['28800.0', 28740],
+      ['1e5', 60],
+      [-5, 3540],
     ] as const) {
       const fake = new FakeFetch(token('t', expiresIn), {
         body: { refLabel: '1', paymentStatus: 'PENDING' },
       });
       await gateway(fake, cache).status('1');
       expect(set).toHaveBeenLastCalledWith(
-        expect.stringMatching(/^node-myanmar-payments\.yoma-mmqr\.token\.[0-9a-f]{64}$/),
+        expect.stringMatching(/^myanmar-payments\.yoma-mmqr\.token\.[0-9a-f]{64}$/),
         't',
         ttl,
       );

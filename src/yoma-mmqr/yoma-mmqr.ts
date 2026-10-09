@@ -11,6 +11,7 @@ import {
   defaultEnv,
   envFirst,
   envSandbox,
+  parseSandbox,
   optionalSetting,
   requireSetting,
   trimUrl,
@@ -28,7 +29,7 @@ import { toPlainObject, type LosslessObject } from '../core/json.js';
 import { QrPayment } from '../core/results.js';
 import { resolveStatus, type PaymentStatus } from '../core/status.js';
 import { toAmount, Validator } from '../core/validate.js';
-import { get, optional, trimmed } from '../core/values.js';
+import { get, isNested, optional, trimmed } from '../core/values.js';
 
 /** The settings of {@link YomaMmqrConfig}. */
 export interface YomaMmqrConfigOptions {
@@ -42,8 +43,11 @@ export interface YomaMmqrConfigOptions {
   webhookHashKey: string;
   /** The secret you shared with Yoma; when set, callbacks must carry it in `X-Webhook-Secret`. */
   webhookSecret?: string | undefined;
-  /** Use the UAT payment hub (default `true`). */
-  sandbox?: boolean | undefined;
+  /**
+   * Use the UAT payment hub (default `true`).
+   * Text is read like a `*_SANDBOX` variable: `false`, `0`, `f`, `no` or `off` select production.
+   */
+  sandbox?: boolean | string | undefined;
   /** Overrides the API base URL. */
   baseUrl?: string | undefined;
   /** The `{version}` segment of the API paths (default `v1rc`). */
@@ -75,7 +79,7 @@ export class YomaMmqrConfig {
     this.clientSecret = requireSetting('yoma_mmqr', 'client_secret', options.clientSecret);
     this.webhookHashKey = requireSetting('yoma_mmqr', 'webhook_hashkey', options.webhookHashKey);
     this.webhookSecret = optionalSetting(options.webhookSecret);
-    this.sandbox = options.sandbox ?? true;
+    this.sandbox = parseSandbox(options.sandbox);
     this.baseUrl = trimUrl(
       optionalSetting(options.baseUrl) ??
         (this.sandbox ? YomaMmqrConfig.SANDBOX_URL : YomaMmqrConfig.PRODUCTION_URL),
@@ -263,7 +267,11 @@ export class YomaMmqr {
       orderNumber + this.config.webhookHashKey,
       `orderNumber=${orderNumber}&status=${status}`,
     );
-    if (orderNumber === '' || !safeEqual(expected, get(payload, 'hashValue').toLowerCase())) {
+    if (
+      orderNumber === '' ||
+      isNested(payload.status) ||
+      !safeEqual(expected, get(payload, 'hashValue').toLowerCase())
+    ) {
       throw new SignatureVerificationError(
         'Yoma MMQR callback hash verification failed.',
         toPlainObject(payload),
@@ -336,14 +344,15 @@ export class YomaMmqr {
       throw apiError('token', response.status, body, get(body, 'error'));
     }
 
-    const expiresIn = Number.parseInt(get(body, 'expires_in'), 10);
-    const ttl = Math.max(60, (Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn : 3600) - 60);
+    // The leading digits of `expires_in`; missing, non-numeric or 0 means an hour.
+    const expiresIn = Number(/^\d+/.exec(get(body, 'expires_in'))?.[0] ?? 0);
+    const ttl = Math.max(60, (expiresIn > 0 ? expiresIn : 3600) - 60);
     await this.cache.set(this.tokenCacheKey(), token, ttl);
     return token;
   }
 
   private tokenCacheKey(): string {
-    return `node-myanmar-payments.yoma-mmqr.token.${sha256Hex(`${this.config.baseUrl}|${this.config.clientId}`)}`;
+    return `myanmar-payments.yoma-mmqr.token.${sha256Hex(`${this.config.baseUrl}|${this.config.clientId}`)}`;
   }
 }
 

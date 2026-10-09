@@ -21,8 +21,20 @@ export function envFirst(env: EnvSource, ...keys: string[]): string {
  * @internal
  */
 export function envSandbox(env: EnvSource, key: string): boolean {
-  const value = env[key]?.trim().toLowerCase() ?? '';
-  return !['false', '0', 'f', 'no', 'off'].includes(value);
+  return parseSandbox(env[key] ?? '');
+}
+
+/**
+ * A `sandbox` setting: booleans as is, text parsed like a `*_SANDBOX` variable (`false`, `0`, `f`,
+ * `no` and `off` in any case select production; anything else means sandbox), unset means sandbox.
+ *
+ * @internal
+ */
+export function parseSandbox(value: boolean | string | undefined | null): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return !['false', '0', 'f', 'no', 'off'].includes((value ?? '').trim().toLowerCase());
 }
 
 /** An integer variable, or `undefined` when unset or not an integer. @internal */

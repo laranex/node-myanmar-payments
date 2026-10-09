@@ -11,6 +11,7 @@ import {
   defaultEnv,
   envFirst,
   envSandbox,
+  parseSandbox,
   optionalSetting,
   requireSetting,
   trimUrl,
@@ -32,7 +33,7 @@ import {
 import { FormPayment, type FormField } from '../core/results.js';
 import { resolveStatus, type PaymentStatus } from '../core/status.js';
 import { toAmount, Validator } from '../core/validate.js';
-import { get, object, optional, scalarString, trimmed } from '../core/values.js';
+import { get, isNested, object, optional, scalarString, trimmed } from '../core/values.js';
 
 /** The settings of {@link AyaPayConfig}. */
 export interface AyaPayConfigOptions {
@@ -40,8 +41,11 @@ export interface AyaPayConfigOptions {
   appKey: string;
   /** The secret that signs requests and verifies callbacks. */
   appSecret: string;
-  /** Use the UAT environment (default `true`). */
-  sandbox?: boolean | undefined;
+  /**
+   * Use the UAT environment (default `true`).
+   * Text is read like a `*_SANDBOX` variable: `false`, `0`, `f`, `no` or `off` select production.
+   */
+  sandbox?: boolean | string | undefined;
   /** Overrides the gateway base URL. */
   baseUrl?: string | undefined;
 }
@@ -63,7 +67,7 @@ export class AyaPayConfig {
   constructor(options: AyaPayConfigOptions) {
     this.appKey = requireSetting('aya_pay', 'app_key', options.appKey);
     this.appSecret = requireSetting('aya_pay', 'app_secret', options.appSecret);
-    this.sandbox = options.sandbox ?? true;
+    this.sandbox = parseSandbox(options.sandbox);
     this.baseUrl = trimUrl(
       optionalSetting(options.baseUrl) ??
         (this.sandbox ? AyaPayConfig.SANDBOX_URL : AyaPayConfig.PRODUCTION_URL),
@@ -373,6 +377,10 @@ export class AyaPay {
     for (const field of PAYLOAD_FIELDS) {
       const key = field === 'currencyCode' && 'currenyCode' in payload ? 'currenyCode' : field;
       if (Object.prototype.hasOwnProperty.call(payload, key)) {
+        // A nested value is never signed, so a payload carrying one is rejected.
+        if (isNested(payload[key])) {
+          throw fail();
+        }
         parts.push(scalarString(payload[key]) ?? '');
       }
     }

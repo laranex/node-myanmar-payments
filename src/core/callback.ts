@@ -123,7 +123,10 @@ export class CallbackRequest {
     return this.headers[name.toLowerCase()];
   }
 
-  /** The body decoded as JSON or as a urlencoded form. */
+  /**
+   * The body decoded as JSON or as a urlencoded form. JSON numbers keep their exact text, as strings
+   * (`1000.50` stays `"1000.50"`).
+   */
   parsedBody(): Record<string, unknown> {
     return toPlainObject(losslessBody(this));
   }

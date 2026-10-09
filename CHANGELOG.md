@@ -24,3 +24,9 @@ Initial release. The version number matches the other Laranex Myanmar payments p
 
 ### Changed since the pre-releases
 - `PaymentStatus.Cancelled` is renamed to `PaymentStatus.Canceled` and its value from `'cancelled'` to `'canceled'` (American English), with no alias. Code or stored statuses from the `v4.0.0-dev` pre-releases need the new name; gateway status literals such as Wave Money's `PAYMENT_REQUEST_CANCELLED` are unchanged.
+- Callback values that are JSON numbers are kept as their exact text, as strings, in `raw`, `parsedBody()`, `input()`, `queryInput()` and the `raw` of errors (`1000.50` is `'1000.50'`, not `1000.5`), like the PHP SDK.
+- A nested value (object or array) in a signed or hashed callback field now fails verification: KBZ Pay (any callback field), Wave Money (the hashed fields), AYA Pay (the signed payload fields) and Yoma MMQR (`status`). Before, KBZ Pay skipped it, Wave Money hashed it as `null` and AYA Pay signed it as empty.
+- AYA Pay accepts a base64 `payload` without padding as well as with full padding; partial padding, the URL-safe alphabet, line breaks and payloads that are not UTF-8 are rejected.
+- Yoma MMQR caches its access token under `myanmar-payments.yoma-mmqr.token.<sha256 of base URL and client id>` (was `node-myanmar-payments.…`), the same key as the PHP, Go and Python SDKs, and reads `expires_in` from its leading digits.
+- `Amount.equals()` compares by value, ignoring leading zeros too (`'01000'` equals `Amount.kyat(1000)`); text that is not plain digits with an optional fraction is never equal.
+- A config's `sandbox` option also takes a string, read like the `*_SANDBOX` variable (`false`, `0`, `f`, `no` or `off` select production).

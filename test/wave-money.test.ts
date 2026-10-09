@@ -178,7 +178,10 @@ describe('WaveMoney', () => {
       amount: '1000',
       gatewayStatus: 'PAYMENT_CONFIRMED',
     });
-    expect(callback.raw).toMatchObject({ merchantReferenceId: 'ref-001', timeToLiveSeconds: 300 });
+    expect(callback.raw).toMatchObject({
+      merchantReferenceId: 'ref-001',
+      timeToLiveSeconds: '300',
+    });
     expect(callback.acknowledgement).toMatchObject({ status: 200, body: '' });
   });
 

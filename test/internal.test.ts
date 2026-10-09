@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import { decodeBase64, queryEscape, safeEqual } from '../src/core/crypto.js';
-import { envFirst, envInt, envSandbox, requireSetting, trimUrl } from '../src/core/env.js';
+import {
+  envFirst,
+  envInt,
+  envSandbox,
+  parseSandbox,
+  requireSetting,
+  trimUrl,
+} from '../src/core/env.js';
 import { JsonNumber, parseJson, parseJsonObject, toPlain } from '../src/core/json.js';
 import { Validator } from '../src/core/validate.js';
-import { get, object, optional, scalarString, trimmed } from '../src/core/values.js';
+import { get, isNested, object, optional, scalarString, trimmed } from '../src/core/values.js';
 import { Amount, ConfigurationError, InvalidPaymentDataError } from '../src/index.js';
 import { caught } from './helpers.js';
 
@@ -30,7 +37,7 @@ describe('lossless JSON', () => {
       t: true,
       f: false,
       n: null,
-      a: [1, [], {}],
+      a: ['1', [], {}],
       o: { x: [] },
     });
   });
@@ -317,13 +324,58 @@ describe('crypto helpers', () => {
   it('decodes strict base64 only', () => {
     expect(decodeBase64(Buffer.from('{"a":1}').toString('base64'))).toBe('{"a":1}');
     expect(decodeBase64('')).toBeUndefined();
-    expect(decodeBase64('abc')).toBeUndefined();
     expect(decodeBase64('ab$=')).toBeUndefined();
+  });
+
+  it('accepts base64 with full padding or none, and nothing else', () => {
+    expect(decodeBase64('eyJhIjoxfQ==')).toBe('{"a":1}');
+    expect(decodeBase64('eyJhIjoxfQ')).toBe('{"a":1}');
+    expect(decodeBase64('YWJj')).toBe('abc');
+    expect(decodeBase64('eyJhIjoxfQ=')).toBeUndefined();
+    expect(decodeBase64('eyJhIjoxfQ===')).toBeUndefined();
+    expect(decodeBase64('YWJj=')).toBeUndefined();
+    expect(decodeBase64('Y')).toBeUndefined();
+    expect(decodeBase64('YW=Jj')).toBeUndefined();
+    expect(decodeBase64('YWJj ZA')).toBeUndefined();
+    expect(decodeBase64('YWJj\nZA==')).toBeUndefined();
+    expect(decodeBase64('-_-_')).toBeUndefined();
+  });
+
+  it('rejects base64 that does not decode to UTF-8', () => {
+    expect(decodeBase64(Buffer.from([0x7b, 0xff, 0x7d]).toString('base64'))).toBeUndefined();
   });
 
   it('compares strings of different lengths safely', () => {
     expect(safeEqual('abc', 'abc')).toBe(true);
     expect(safeEqual('abc', 'abd')).toBe(false);
     expect(safeEqual('abc', 'ab')).toBe(false);
+  });
+});
+
+describe('parity helpers', () => {
+  it('parses a sandbox setting like a *_SANDBOX variable', () => {
+    expect(parseSandbox(undefined)).toBe(true);
+    expect(parseSandbox(null)).toBe(true);
+    expect(parseSandbox(true)).toBe(true);
+    expect(parseSandbox(false)).toBe(false);
+    expect(parseSandbox(' OFF ')).toBe(false);
+    expect(parseSandbox('maybe')).toBe(true);
+  });
+
+  it('treats only objects and arrays as nested', () => {
+    expect(isNested({})).toBe(true);
+    expect(isNested([])).toBe(true);
+    expect(isNested(new JsonNumber('1'))).toBe(false);
+    expect(isNested(null)).toBe(false);
+    expect(isNested('x')).toBe(false);
+    expect(isNested(true)).toBe(false);
+  });
+
+  it('keeps JSON numbers as their exact text in plain values', () => {
+    expect(toPlain(parseJson('{"a":1000.50,"b":9007199254740993,"c":-1.5e+3}') as never)).toEqual({
+      a: '1000.50',
+      b: '9007199254740993',
+      c: '-1.5e+3',
+    });
   });
 });
