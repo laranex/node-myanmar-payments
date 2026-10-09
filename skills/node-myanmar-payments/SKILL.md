@@ -84,6 +84,7 @@ try {
 ```
 
 - Give the callback route the raw body: in Express use `express.raw({ type: '*/*' })` or mount it before `express.json()`.
+- Fastify consumes the body before your handler: keep it as a string with a content-type parser (`parseAs: 'string'`) and build `CallbackRequest.from({ body, headers: request.headers, query: request.query })`.
 - Check AYA's browser return with `aya.verifyRedirect(request)`.
 - For production, store the verified call, acknowledge immediately, then process it once in the background.
 

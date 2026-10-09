@@ -25,8 +25,8 @@ export interface CallbackRequestInit {
 }
 
 /**
- * The parts of a Node `http.IncomingMessage` this package reads, so Express, Fastify (`request.raw`)
- * and Koa (`ctx.req`) requests work too.
+ * The parts of a Node `http.IncomingMessage` this package reads, so Express requests work too (and
+ * Koa's `ctx.req` when no body parser consumed it).
  */
 export interface NodeRequestLike extends AsyncIterable<unknown> {
   headers: Readonly<Record<string, string | readonly string[] | undefined>>;
@@ -81,10 +81,11 @@ export class CallbackRequest {
   }
 
   /**
-   * Reads a Node `http.IncomingMessage` (also Express `req`, Fastify `request.raw`, Koa `ctx.req`).
-   * Reads the raw body from the stream, or from `rawBody`/`body` when middleware captured it as
-   * text or bytes. When a body parser already consumed the stream, the parsed `body` is encoded
-   * again as JSON or a form.
+   * Reads a Node `http.IncomingMessage` (also Express `req`, or Koa `ctx.req` without a body
+   * parser). Reads the raw body from the stream, or from `rawBody`/`body` when middleware captured
+   * it as text or bytes. When a body parser already consumed the stream, the parsed `body` is
+   * encoded again as JSON or a form. Fastify parses the body before your handler runs: use
+   * {@link CallbackRequest.from} with the raw body there.
    */
   static async fromNodeRequest(request: NodeRequestLike): Promise<CallbackRequest> {
     const headers = normalizeHeaders(request.headers);
