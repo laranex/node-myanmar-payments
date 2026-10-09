@@ -44,6 +44,29 @@ function nodeRequest(
 }
 
 describe('CallbackRequest', () => {
+  it('keeps the exact bytes received as rawBody', () => {
+    const bytes = new Uint8Array([0x7b, 0x22, 0x61, 0x22, 0x3a, 0x22, 0xc3, 0xbc, 0x22, 0x7d]);
+    const fromBytes = new CallbackRequest({ body: bytes });
+    expect(fromBytes.rawBody).toEqual(bytes);
+    expect(fromBytes.body).toBe('{"a":"ü"}');
+    bytes[0] = 0;
+    expect(fromBytes.rawBody[0]).toBe(0x7b);
+
+    const fromBuffer = new CallbackRequest({ body: Buffer.from('a=1') });
+    expect(Array.from(fromBuffer.rawBody)).toEqual([0x61, 0x3d, 0x31]);
+
+    const fromArrayBuffer = new CallbackRequest({ body: new TextEncoder().encode('x').buffer });
+    expect(Array.from(fromArrayBuffer.rawBody)).toEqual([0x78]);
+    expect(fromArrayBuffer.body).toBe('x');
+
+    const fromString = new CallbackRequest({ body: '{"a":"ü"}' });
+    expect(Array.from(fromString.rawBody)).toEqual(Array.from(bytes.fill(0x7b, 0, 1)));
+    expect(fromString.body).toBe('{"a":"ü"}');
+
+    expect(new CallbackRequest().rawBody).toEqual(new Uint8Array());
+    expect(new CallbackRequest({ body: null }).body).toBe('');
+  });
+
   it('parses JSON and form bodies with the documented precedence', () => {
     const json = new CallbackRequest({
       body: '{"amount": 1000.50, "nested": {"a": "b"}}',

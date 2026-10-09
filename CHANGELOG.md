@@ -29,4 +29,5 @@ Initial release. The version number matches the other Laranex Myanmar payments p
 - AYA Pay accepts a base64 `payload` without padding as well as with full padding; partial padding, the URL-safe alphabet, line breaks and payloads that are not UTF-8 are rejected.
 - Yoma MMQR caches its access token under `myanmar-payments.yoma-mmqr.token.<sha256 of base URL and client id>` (was `node-myanmar-payments.…`), the same key as the PHP, Go and Python SDKs, and reads `expires_in` from its leading digits.
 - `Amount.equals()` compares by value, ignoring leading zeros too (`'01000'` equals `Amount.kyat(1000)`); text that is not plain digits with an optional fraction is never equal.
+- `CallbackRequest.rawBody` holds the exact bytes received (a string body is encoded as UTF-8), next to `body` as text, like Python's `raw_body` and Go's `Body`.
 - A config's `sandbox` option also takes a string, read like the `*_SANDBOX` variable (`false`, `0`, `f`, `no` or `off` select production).

@@ -51,15 +51,18 @@ export interface WebRequestLike {
  * {@link CallbackRequest.fromNodeRequest} or {@link CallbackRequest.fromWebRequest}.
  */
 export class CallbackRequest {
-  /** The raw request body, decoded as UTF-8. */
+  /** The request body as text: a string body as given, bytes decoded as UTF-8. */
   readonly body: string;
+  /** The exact bytes received. A string body is encoded as UTF-8. */
+  readonly rawBody: Uint8Array;
   /** The request headers, with lowercase names. Repeated headers are joined with `, `. */
   readonly headers: Readonly<Record<string, string>>;
   /** The query string parameters (the first value of each). */
   readonly query: Readonly<Record<string, string>>;
 
   constructor(init: CallbackRequestInit = {}) {
-    this.body = bodyText(init.body);
+    this.rawBody = bodyBytes(init.body);
+    this.body = typeof init.body === 'string' ? init.body : new TextDecoder().decode(this.rawBody);
     this.headers = Object.freeze(normalizeHeaders(init.headers));
     this.query = Object.freeze(normalizeQuery(init.query));
   }
@@ -318,14 +321,15 @@ export class PaymentStatusResult {
   }
 }
 
-function bodyText(body: BodyInput | null | undefined): string {
+function bodyBytes(body: BodyInput | null | undefined): Uint8Array {
   if (body === undefined || body === null) {
-    return '';
+    return new Uint8Array();
   }
   if (typeof body === 'string') {
-    return body;
+    return new TextEncoder().encode(body);
   }
-  return new TextDecoder().decode(body);
+  // A copy, so later changes to the caller's buffer cannot alter what was verified.
+  return body instanceof ArrayBuffer ? new Uint8Array(body.slice(0)) : Uint8Array.from(body);
 }
 
 function rawBody(value: unknown): BodyInput | undefined {
