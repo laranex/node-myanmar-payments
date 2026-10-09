@@ -160,6 +160,45 @@ describe('CyberSource', () => {
     );
   });
 
+  it('rejects the signed checkout form posted back with an unsigned decision', () => {
+    const form = new URLSearchParams(gateway().initiate(base).values());
+    form.set('decision', 'ACCEPT');
+    form.set('req_reference_number', 'ORDER-1');
+    form.set('auth_amount', '1000');
+    expect(
+      caught(() => gateway().handleCallback(new CallbackRequest({ body: form.toString() }))),
+    ).toBeInstanceOf(SignatureVerificationError);
+  });
+
+  it('requires decision and req_reference_number to be signed', () => {
+    for (const names of [
+      'req_reference_number,transaction_id,auth_amount,signed_field_names',
+      'decision,transaction_id,auth_amount,signed_field_names',
+    ]) {
+      expect(() => gateway().handleCallback(callback({ signed_field_names: names }))).toThrow(
+        SignatureVerificationError,
+      );
+    }
+  });
+
+  it('reads only signed fields', () => {
+    const fields: Record<string, string> = {
+      decision: 'ACCEPT',
+      req_reference_number: 'ORDER-3',
+      req_amount: '5.00',
+      signed_field_names: 'decision,req_reference_number,req_amount,signed_field_names',
+    };
+    fields.signature = signature(fields);
+    const form = new URLSearchParams({
+      ...fields,
+      auth_amount: '1.00',
+      transaction_id: 'forged',
+    });
+    const result = gateway().handleCallback(new CallbackRequest({ body: form.toString() }));
+    expect(result).toMatchObject({ amount: '5.00', gatewayReference: undefined });
+    expect(result.raw).toEqual(fields);
+  });
+
   it('rejects a tampered callback', () => {
     const form = new URLSearchParams(callback().body);
     form.set('auth_amount', '1.00');
