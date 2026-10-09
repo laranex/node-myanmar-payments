@@ -56,14 +56,14 @@ export function isLosslessObject(value: unknown): value is LosslessObject {
 }
 
 /**
- * Converts a lossless value to plain JavaScript values (numbers become `number`), for the `raw`
- * fields of results.
+ * Converts a lossless value to plain JavaScript values for the `raw` fields of results. Numbers
+ * become their exact text as a string (`1000.50` stays `"1000.50"`), so no precision is lost.
  *
  * @internal
  */
 export function toPlain(value: LosslessValue): unknown {
   if (value instanceof JsonNumber) {
-    return Number(value.text);
+    return value.text;
   }
   if (Array.isArray(value)) {
     return value.map(toPlain);

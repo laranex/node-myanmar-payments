@@ -23,7 +23,7 @@ Requires Node.js 20+ and has no runtime dependencies (global `fetch`, `node:cryp
 
 ## Configure
 
-Every gateway has a config class with `fromEnv(process.env)`, reading `KBZ_PAY_*`, `WAVE_MONEY_*`, `AYA_PAY_*` (or `AYA_PGW_*`), `YOMA_MMQR_*` and `CYBER_SOURCE_*` (the same variables as the PHP, Laravel and Go packages). `sandbox` defaults to `true`; set `*_SANDBOX=false` (or `sandbox: false`) in production.
+Every gateway has a config class with `fromEnv(process.env)`, reading `KBZ_PAY_*`, `WAVE_MONEY_*`, `AYA_PAY_*` (or `AYA_PGW_*`), `YOMA_MMQR_*` and `CYBER_SOURCE_*` (the same variables as the PHP, Laravel and Go packages). `sandbox` defaults to `true`; set `*_SANDBOX=false` (or `sandbox: false`; a string such as `'false'` is read like the variable) in production.
 
 ```ts
 import { MyanmarPayments } from '@laranex/myanmar-payments';

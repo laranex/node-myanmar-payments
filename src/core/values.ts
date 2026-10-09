@@ -41,3 +41,8 @@ export function object(source: Record<string, unknown>, key: string): LosslessOb
   const value = source[key];
   return isLosslessObject(value) ? value : undefined;
 }
+
+/** Whether `value` is an object or array, which a gateway never signs. @internal */
+export function isNested(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && !(value instanceof JsonNumber);
+}

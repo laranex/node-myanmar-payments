@@ -6,6 +6,7 @@ import {
   envFirst,
   envInt,
   envSandbox,
+  parseSandbox,
   optionalSetting,
   requireSetting,
   trimUrl,
@@ -22,7 +23,7 @@ import { isLosslessObject, toPlainObject, type LosslessObject } from '../core/js
 import { RedirectPayment } from '../core/results.js';
 import { resolveStatus, type PaymentStatus } from '../core/status.js';
 import { toAmount, Validator } from '../core/validate.js';
-import { get, optional, scalarString, trimmed } from '../core/values.js';
+import { get, isNested, optional, scalarString, trimmed } from '../core/values.js';
 
 /** The settings of {@link WaveMoneyConfig}. */
 export interface WaveMoneyConfigOptions {
@@ -34,8 +35,11 @@ export interface WaveMoneyConfigOptions {
   merchantName: string;
   /** How long the customer has to pay, in seconds (default 300). */
   timeToLiveSeconds?: number | undefined;
-  /** Use the test environment (default `true`). */
-  sandbox?: boolean | undefined;
+  /**
+   * Use the test environment (default `true`).
+   * Text is read like a `*_SANDBOX` variable: `false`, `0`, `f`, `no` or `off` select production.
+   */
+  sandbox?: boolean | string | undefined;
   /** Overrides the API base URL. */
   baseUrl?: string | undefined;
   /** Overrides the host the customer is redirected to. Wave serves it without the API port. */
@@ -72,7 +76,7 @@ export class WaveMoneyConfig {
       ttl !== undefined && Number.isInteger(ttl) && ttl > 0
         ? ttl
         : WaveMoneyConfig.DEFAULT_TIME_TO_LIVE_SECONDS;
-    this.sandbox = options.sandbox ?? true;
+    this.sandbox = parseSandbox(options.sandbox);
     this.baseUrl = trimUrl(
       optionalSetting(options.baseUrl) ??
         (this.sandbox ? WaveMoneyConfig.SANDBOX_URL : WaveMoneyConfig.PRODUCTION_URL),
@@ -303,7 +307,7 @@ export class WaveMoney {
   /**
    * Verifies Wave's callback. Only `PAYMENT_CONFIRMED` means the customer paid. `orderId` falls
    * back to `merchantReferenceId` when it is missing, null or empty, because Wave marks `orderId` as
-   * optional.
+   * optional. A hashed field holding an object or array fails verification.
    */
   handleCallback(request: CallbackRequest): PaymentCallback {
     const payload = losslessBody(request);
@@ -312,7 +316,11 @@ export class WaveMoney {
     );
     const hashValue = payload.hashValue;
 
-    if (typeof hashValue !== 'string' || !safeEqual(expected, hashValue.toLowerCase())) {
+    if (
+      typeof hashValue !== 'string' ||
+      CALLBACK_FIELDS.some((field) => isNested(payload[field])) ||
+      !safeEqual(expected, hashValue.toLowerCase())
+    ) {
       throw new SignatureVerificationError(
         'Wave Money callback hash verification failed.',
         toPlainObject(payload),

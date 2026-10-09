@@ -313,7 +313,7 @@ describe('KbzPay', () => {
       gatewayReference: undefined,
       status: 'pending',
     });
-    expect(result.raw.total_amount).toBe(1000.5);
+    expect(result.raw.total_amount).toBe('1000.50');
   });
 
   it('passes the abort signal to the request', async () => {
@@ -381,7 +381,7 @@ describe('KbzPay', () => {
       amount: '1000',
       gatewayStatus: 'PAY_SUCCESS',
     });
-    expect(callback.raw).toMatchObject({ notify_time: 1536637503, merch_order_id: 'ORDER_1' });
+    expect(callback.raw).toMatchObject({ notify_time: '1536637503', merch_order_id: 'ORDER_1' });
     expect(callback.acknowledgement).toMatchObject({
       status: 200,
       body: 'success',

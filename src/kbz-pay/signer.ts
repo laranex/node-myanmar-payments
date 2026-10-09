@@ -1,5 +1,5 @@
 import { safeEqual, sha256Hex } from '../core/crypto.js';
-import { scalarString } from '../core/values.js';
+import { isNested, scalarString } from '../core/values.js';
 
 /**
  * KBZ Pay's signature: every non-empty scalar field except `sign` and `sign_type`, sorted by key,
@@ -25,9 +25,16 @@ export class KbzPaySigner {
     return sha256Hex(`${this.signString(fields)}&key=${this.appKey}`).toUpperCase();
   }
 
-  /** Whether `fields.sign` matches, compared in constant time. */
+  /**
+   * Whether `fields.sign` matches, compared in constant time. Nested values are never signed, so
+   * fields holding an object or array fail rather than being partly trusted.
+   */
   verify(fields: Readonly<Record<string, unknown>>): boolean {
     const sign = fields.sign;
-    return typeof sign === 'string' && safeEqual(this.sign(fields), sign.toUpperCase());
+    return (
+      typeof sign === 'string' &&
+      !Object.values(fields).some(isNested) &&
+      safeEqual(this.sign(fields), sign.toUpperCase())
+    );
   }
 }

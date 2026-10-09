@@ -5,6 +5,7 @@ import {
   defaultEnv,
   envFirst,
   envSandbox,
+  parseSandbox,
   optionalSetting,
   requireSetting,
   trimUrl,
@@ -25,8 +26,11 @@ export interface CyberSourceConfigOptions {
   accessKey: string;
   /** The profile's secret key, which signs the fields. */
   secretKey: string;
-  /** Use the test environment (default `true`). */
-  sandbox?: boolean | undefined;
+  /**
+   * Use the test environment (default `true`).
+   * Text is read like a `*_SANDBOX` variable: `false`, `0`, `f`, `no` or `off` select production.
+   */
+  sandbox?: boolean | string | undefined;
   /** Overrides the Secure Acceptance base URL. */
   baseUrl?: string | undefined;
 }
@@ -49,7 +53,7 @@ export class CyberSourceConfig {
     this.profileId = requireSetting('cyber_source', 'profile_id', options.profileId);
     this.accessKey = requireSetting('cyber_source', 'access_key', options.accessKey);
     this.secretKey = requireSetting('cyber_source', 'secret_key', options.secretKey);
-    this.sandbox = options.sandbox ?? true;
+    this.sandbox = parseSandbox(options.sandbox);
     this.baseUrl = trimUrl(
       optionalSetting(options.baseUrl) ??
         (this.sandbox ? CyberSourceConfig.SANDBOX_URL : CyberSourceConfig.PRODUCTION_URL),

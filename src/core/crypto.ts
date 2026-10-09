@@ -39,10 +39,24 @@ export function queryEscape(value: string): string {
     .replace(/%20/g, '+');
 }
 
-/** Decodes strict standard base64 (with padding), or `undefined`. @internal */
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
+
+/**
+ * Decodes standard base64 (`A-Z a-z 0-9 + /`), either correctly padded or without any padding, to
+ * UTF-8 text. Partial padding, other characters and bytes that are not UTF-8 return `undefined`.
+ *
+ * @internal
+ */
 export function decodeBase64(value: string): string | undefined {
-  if (value === '' || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value)) {
     return undefined;
   }
-  return Buffer.from(value, 'base64').toString('utf8');
+  if (value.includes('=') ? value.length % 4 !== 0 : value.length % 4 === 1) {
+    return undefined;
+  }
+  try {
+    return UTF8.decode(Buffer.from(value, 'base64'));
+  } catch {
+    return undefined;
+  }
 }

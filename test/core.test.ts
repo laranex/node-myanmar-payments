@@ -50,8 +50,8 @@ describe('CallbackRequest', () => {
       query: { q: '1' },
     });
     expect(losslessBody(json).amount).toEqual(new JsonNumber('1000.50'));
-    expect(json.parsedBody()).toEqual({ amount: 1000.5, nested: { a: 'b' } });
-    expect(json.input()).toEqual({ q: '1', amount: 1000.5, nested: { a: 'b' } });
+    expect(json.parsedBody()).toEqual({ amount: '1000.50', nested: { a: 'b' } });
+    expect(json.input()).toEqual({ q: '1', amount: '1000.50', nested: { a: 'b' } });
 
     const form = new CallbackRequest({
       body: 'decision=ACCEPT&amount=10.50&decision=SECOND',
@@ -107,7 +107,7 @@ describe('CallbackRequest', () => {
     expect(request.body).toBe('{"orderId":"ORDER_1","amount":1000}');
     expect(request.header('Content-Type')).toBe('application/json');
     expect(request.header('x-signature')).toBe('sig');
-    expect(request.input()).toEqual({ orderId: 'ORDER_1', amount: 1000 });
+    expect(request.input()).toEqual({ orderId: 'ORDER_1', amount: '1000' });
     expect(CallbackRequest.fromJson({}).header('content-type')).toBe('application/json');
   });
 

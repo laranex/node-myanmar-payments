@@ -99,19 +99,28 @@ export class Amount {
   }
 
   /**
-   * Whether both amounts have the same value, ignoring trailing fractional zeros
-   * (`1000`, `1000.0` and `1000.00` are equal). `undefined` is never equal, so a gateway amount
-   * that was not sent never matches.
+   * Whether both amounts have the same value. Leading zeros of the whole part and trailing zeros of
+   * the fraction are ignored (`1000`, `01000` and `1000.00` are equal). Text must be plain digits
+   * with an optional fraction, so `1,000` or ` 1000` is never equal, and neither is `null` or
+   * `undefined` (a gateway amount that was not sent never matches).
    */
   equals(other: Amount | string | null | undefined): boolean {
     if (other === undefined || other === null) {
       return false;
     }
-    const normalize = (value: string): string =>
-      value.includes('.') ? value.replace(/0+$/, '').replace(/\.$/, '') : value;
     const text = other instanceof Amount ? other.value : other;
+    if (typeof text !== 'string' || !PATTERN.test(text)) {
+      return false;
+    }
     return normalize(this.value) === normalize(text);
   }
+}
+
+function normalize(value: string): string {
+  const [whole = '', fraction = ''] = value.split('.');
+  const trimmedWhole = whole.replace(/^0+/, '') || '0';
+  const trimmedFraction = fraction.replace(/0+$/, '');
+  return trimmedFraction === '' ? trimmedWhole : `${trimmedWhole}.${trimmedFraction}`;
 }
 
 function invalid(message: string): InvalidPaymentDataError {

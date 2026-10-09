@@ -11,6 +11,7 @@ import {
   defaultEnv,
   envFirst,
   envSandbox,
+  parseSandbox,
   optionalSetting,
   requireSetting,
   trimUrl,
@@ -38,8 +39,12 @@ export interface KbzPayConfigOptions {
   appKey: string;
   /** The `merch_code` KBZ issued. */
   merchantCode: string;
-  /** Use the UAT endpoints (default `true`). UAT and production issue separate credentials. */
-  sandbox?: boolean | undefined;
+  /**
+   * Use the UAT endpoints (default `true`). UAT and production issue separate
+   * credentials. Text is read like a `*_SANDBOX` variable: `false`, `0`, `f`, `no` or `off`
+   * select production.
+   */
+  sandbox?: boolean | string | undefined;
   /** Overrides the API base URL, e.g. to go through a proxy. */
   apiUrl?: string | undefined;
   /** Overrides the PWA checkout URL. A trailing `#` or `#/` is normalized to `#/`. */
@@ -68,7 +73,7 @@ export class KbzPayConfig {
     this.appId = requireSetting('kbz_pay', 'app_id', options.appId);
     this.appKey = requireSetting('kbz_pay', 'app_key', options.appKey);
     this.merchantCode = requireSetting('kbz_pay', 'merchant_code', options.merchantCode);
-    this.sandbox = options.sandbox ?? true;
+    this.sandbox = parseSandbox(options.sandbox);
     this.apiUrl = trimUrl(
       optionalSetting(options.apiUrl) ??
         (this.sandbox ? KbzPayConfig.SANDBOX_API_URL : KbzPayConfig.PRODUCTION_API_URL),
