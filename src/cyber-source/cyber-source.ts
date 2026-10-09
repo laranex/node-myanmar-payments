@@ -11,7 +11,7 @@ import {
   type EnvSource,
 } from '../core/env.js';
 import { SignatureVerificationError } from '../core/errors.js';
-import { toPlainObject } from '../core/json.js';
+import { setKey, toPlainObject, type LosslessObject } from '../core/json.js';
 import { FormPayment, type FormField } from '../core/results.js';
 import { resolveStatus, type PaymentStatus } from '../core/status.js';
 import { toAmount, Validator } from '../core/validate.js';
@@ -227,36 +227,47 @@ export class CyberSource {
 
   /**
    * Verifies CyberSource's result post. The same check works for the browser post to your receipt
-   * page.
+   * page. Only the fields listed in `signed_field_names` are trusted: `decision` and
+   * `req_reference_number` must be signed, and unsigned fields are left out of the result.
    */
   handleCallback(request: CallbackRequest): PaymentCallback {
     const payload = losslessInput(request);
     const expected = this.sign(payload);
-    if (expected === undefined || !safeEqual(expected, get(payload, 'signature'))) {
+    const names = signedNames(payload);
+    if (
+      expected === undefined ||
+      !safeEqual(expected, get(payload, 'signature')) ||
+      !names.includes('decision') ||
+      !names.includes('req_reference_number')
+    ) {
       throw new SignatureVerificationError(
         'CyberSource callback signature verification failed.',
         toPlainObject(payload),
       );
     }
 
-    const decision = trimmed(payload, 'decision').toUpperCase();
+    // A signature only covers the listed fields, so anything else in the post could have been
+    // added by the sender (e.g. a `decision` next to the signed request fields).
+    const signed: LosslessObject = {};
+    for (const name of [...names, 'signature']) {
+      setKey(signed, name, payload[name]);
+    }
+
+    const decision = trimmed(signed, 'decision').toUpperCase();
     return new PaymentCallback({
-      orderId: get(payload, 'req_reference_number'),
+      orderId: get(signed, 'req_reference_number'),
       status: resolveStatus(STATUSES, decision),
       gatewayStatus: decision,
-      gatewayReference: optional(payload, 'transaction_id'),
-      amount: get(payload, 'auth_amount') || optional(payload, 'req_amount'),
-      raw: toPlainObject(payload),
+      gatewayReference: optional(signed, 'transaction_id'),
+      amount: get(signed, 'auth_amount') || optional(signed, 'req_amount'),
+      raw: toPlainObject(signed),
     });
   }
 
   /** Signs the fields listed in `signed_field_names`; `undefined` when a listed field is missing. */
   private sign(fields: Readonly<Record<string, unknown>>): string | undefined {
     const pairs: string[] = [];
-    for (const name of get(fields, 'signed_field_names').split(',')) {
-      if (name === '') {
-        continue;
-      }
+    for (const name of signedNames(fields)) {
       const value = scalarString(fields[name]);
       if (value === undefined) {
         return undefined;
@@ -267,4 +278,11 @@ export class CyberSource {
       ? undefined
       : hmacSha256Base64(this.config.secretKey, pairs.join(','));
   }
+}
+
+/** The names listed in `signed_field_names`, in order. */
+function signedNames(fields: Readonly<Record<string, unknown>>): string[] {
+  return get(fields, 'signed_field_names')
+    .split(',')
+    .filter((name) => name !== '');
 }
