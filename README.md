@@ -4,7 +4,7 @@
 [![Tests](https://github.com/laranex/node-myanmar-payments/actions/workflows/tests.yml/badge.svg)](https://github.com/laranex/node-myanmar-payments/actions/workflows/tests.yml)
 [![License](https://img.shields.io/npm/l/@laranex/myanmar-payments.svg?style=flat-square)](LICENSE.md)
 
-Node.js SDK for Myanmar payment gateways: KBZ Pay, Wave Money, AYA Pay, Yoma MMQR and CyberSource. Typed TypeScript API, ESM and CommonJS, no runtime dependencies. Built for humans and AI agents.
+Node.js SDK for Myanmar payment gateways: KBZ Pay, Wave Money, AYA Pay, Yoma MMQR and CyberSource. Typed requests and results, exact amounts, no runtime dependencies. Built for humans and AI agents.
 
 ## Documentation
 
