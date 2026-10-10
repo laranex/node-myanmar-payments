@@ -29,7 +29,19 @@ interface Vectors {
   amount_parse: { input: string; value: string | null }[];
   amount_parse_error: { input: string; errors: Record<string, string> };
   amount_equals: { amount: string; other: string | null; equal: boolean }[];
-  sandbox: { value: string; sandbox: boolean }[];
+  config: {
+    env: Record<string, string>;
+    seconds: { time_to_live_in_seconds: number; timeout_in_seconds: number };
+    urls: Record<string, Record<string, string>>;
+    uat: { env: Record<string, string>; urls: Record<string, Record<string, string>> };
+    errors: {
+      gateway: string;
+      variable: string;
+      value: string | null;
+      key: string;
+      message: string;
+    }[];
+  };
   yoma_mmqr_token_cache_key: { base_url: string; client_id: string; key: string };
   form_html: {
     order_id: string;
@@ -41,6 +53,7 @@ interface Vectors {
   messages: {
     invalid_payment_data: { errors: Record<string, string>; message: string };
     configuration: { gateway: string; key: string; message: string };
+    configuration_invalid: { gateway: string; key: string; message: string };
     whole_amounts_only: string;
     aya_whole_amounts_only: string;
     kbz_decimals: string;
@@ -71,23 +84,30 @@ const handlers: Record<string, (request: CallbackRequest) => PaymentCallback> = 
       appId: 'kp123',
       appKey: secrets.kbz_pay_app_key as string,
       merchantCode: '100001',
+      timeoutSeconds: 30,
     }).handleCallback(request),
   wave_money: (request) =>
     new WaveMoney({
       merchantId: 'merchant',
       secretKey: secrets.wave_money_secret_key as string,
       merchantName: 'Shop',
+      timeToLiveSeconds: 300,
+      timeoutSeconds: 30,
     }).handleCallback(request),
   aya_pay: (request) =>
-    new AyaPay({ appKey: 'app', appSecret: secrets.aya_pay_app_secret as string }).handleCallback(
-      request,
-    ),
+    new AyaPay({
+      appKey: 'app',
+      appSecret: secrets.aya_pay_app_secret as string,
+      timeoutSeconds: 30,
+    }).handleCallback(request),
   yoma_mmqr: (request) =>
     new YomaMmqr({
       merchantId: 'merchant',
       clientId: 'client',
       clientSecret: 'secret',
       webhookHashKey: secrets.yoma_mmqr_webhook_hashkey as string,
+      apiVersion: 'v1rc',
+      timeoutSeconds: 30,
     }).handleCallback(request),
   cyber_source: (request) =>
     new CyberSource({
@@ -144,44 +164,58 @@ describe('parity vectors', () => {
     }
   });
 
-  it.each(vectors.sandbox)('reads *_SANDBOX=$value', ({ value, sandbox }) => {
-    const configs = [
-      KbzPayConfig.fromEnv({
-        KBZ_PAY_APP_ID: 'a',
-        KBZ_PAY_APP_KEY: 'k',
-        KBZ_PAY_MERCHANT_CODE: 'm',
-        KBZ_PAY_SANDBOX: value,
-      }),
-      WaveMoneyConfig.fromEnv({
-        WAVE_MONEY_MERCHANT_ID: 'm',
-        WAVE_MONEY_SECRET_KEY: 's',
-        WAVE_MONEY_MERCHANT_NAME: 'n',
-        WAVE_MONEY_SANDBOX: value,
-      }),
-      AyaPayConfig.fromEnv({
-        AYA_PAY_APP_KEY: 'k',
-        AYA_PAY_APP_SECRET: 's',
-        AYA_PAY_SANDBOX: value,
-      }),
-      YomaMmqrConfig.fromEnv({
-        YOMA_MMQR_MERCHANT_ID: 'm',
-        YOMA_MMQR_CLIENT_ID: 'c',
-        YOMA_MMQR_CLIENT_SECRET: 's',
-        YOMA_MMQR_WEBHOOK_HASHKEY: 'h',
-        YOMA_MMQR_SANDBOX: value,
-      }),
-      CyberSourceConfig.fromEnv({
-        CYBER_SOURCE_PROFILE_ID: 'p',
-        CYBER_SOURCE_ACCESS_KEY: 'a',
-        CYBER_SOURCE_SECRET_KEY: 's',
-        CYBER_SOURCE_SANDBOX: value,
-      }),
-    ];
-    for (const config of configs) {
-      expect(config.sandbox).toBe(sandbox);
-    }
-    expect(new AyaPayConfig({ appKey: 'k', appSecret: 's', sandbox: value }).sandbox).toBe(sandbox);
+  it('reads every gateway from the environment with production URLs', () => {
+    const { env, seconds, urls, uat } = vectors.config;
+    const check = (variables: Record<string, string>, expected: typeof urls): void => {
+      const kbz = KbzPayConfig.fromEnv(variables);
+      const wave = WaveMoneyConfig.fromEnv(variables);
+      const aya = AyaPayConfig.fromEnv(variables);
+      const yoma = YomaMmqrConfig.fromEnv(variables);
+      const cyber = CyberSourceConfig.fromEnv(variables);
+      expect({ api_url: kbz.apiUrl, pwa_url: kbz.pwaUrl }).toEqual(expected.kbz_pay);
+      expect({ base_url: wave.baseUrl, authenticate_url: wave.authenticateUrl }).toEqual(
+        expected.wave_money,
+      );
+      expect({ base_url: aya.baseUrl }).toEqual(expected.aya_pay);
+      expect({ base_url: yoma.baseUrl }).toEqual(expected.yoma_mmqr);
+      expect({ base_url: cyber.baseUrl }).toEqual(expected.cyber_source);
+      expect(wave.timeToLiveSeconds).toBe(seconds.time_to_live_in_seconds);
+      for (const config of [kbz, wave, aya, yoma]) {
+        expect(config.timeoutSeconds).toBe(seconds.timeout_in_seconds);
+      }
+    };
+    check(env, urls);
+    check({ ...env, ...uat.env }, uat.urls);
   });
+
+  const fromEnv: Record<string, (env: Record<string, string>) => unknown> = {
+    kbz_pay: (env) => KbzPayConfig.fromEnv(env),
+    wave_money: (env) => WaveMoneyConfig.fromEnv(env),
+    aya_pay: (env) => AyaPayConfig.fromEnv(env),
+    yoma_mmqr: (env) => YomaMmqrConfig.fromEnv(env),
+    cyber_source: (env) => CyberSourceConfig.fromEnv(env),
+  };
+
+  it.each(vectors.config.errors)(
+    '$gateway: $variable=$value',
+    ({ gateway, variable, value, key, message }) => {
+      const env: Record<string, string> = Object.fromEntries(
+        Object.entries(vectors.config.env).filter(([name]) => name !== variable),
+      );
+      if (value !== null) {
+        env[variable] = value;
+      }
+      const build = fromEnv[gateway] as (env: Record<string, string>) => unknown;
+      let error: unknown;
+      try {
+        build(env);
+      } catch (caughtError) {
+        error = caughtError;
+      }
+      expect(error).toBeInstanceOf(ConfigurationError);
+      expect(error).toMatchObject({ gateway, key, message });
+    },
+  );
 
   it('caches the Yoma MMQR token under the shared key', async () => {
     const { base_url, client_id, key } = vectors.yoma_mmqr_token_cache_key;
@@ -201,6 +235,8 @@ describe('parity vectors', () => {
         clientId: client_id,
         clientSecret: 's',
         webhookHashKey: 'h',
+        apiVersion: 'v1rc',
+        timeoutSeconds: 30,
         baseUrl: base_url,
       },
       { fetch: fake.fetch, tokenCache: cache },
@@ -230,6 +266,12 @@ describe('parity vectors', () => {
       messages.configuration.key,
     );
     expect(configuration.message).toBe(messages.configuration.message);
+    const invalid = new ConfigurationError(
+      messages.configuration_invalid.gateway,
+      messages.configuration_invalid.key,
+      true,
+    );
+    expect(invalid.message).toBe(messages.configuration_invalid.message);
 
     const errorsOf = (validate: () => void): Readonly<Record<string, string>> => {
       try {

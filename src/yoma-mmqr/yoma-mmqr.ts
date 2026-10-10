@@ -10,9 +10,9 @@ import { hmacSha256Hex, safeEqual, sha256Hex } from '../core/crypto.js';
 import {
   defaultEnv,
   envFirst,
-  envSandbox,
-  parseSandbox,
+  HTTP_TIMEOUT_VARIABLE,
   optionalSetting,
+  requireSeconds,
   requireSetting,
   trimUrl,
   type EnvSource,
@@ -43,54 +43,51 @@ export interface YomaMmqrConfigOptions {
   webhookHashKey: string;
   /** The secret you shared with Yoma; when set, callbacks must carry it in `X-Webhook-Secret`. */
   webhookSecret?: string | undefined;
+  /** The `{version}` segment of the API paths, e.g. `v1rc`. */
+  apiVersion: string;
   /**
-   * Use the UAT payment hub (default `true`).
-   * Text is read like a `*_SANDBOX` variable: `false`, `0`, `f`, `no` or `off` select production.
+   * Seconds before the default HTTP client gives up on a request, a whole number greater than 0
+   * (or its text). A client you pass keeps its own timeout.
    */
-  sandbox?: boolean | string | undefined;
-  /** Overrides the API base URL. */
+  timeoutSeconds: number | string;
+  /** Overrides the API base URL, e.g. to point at UAT. */
   baseUrl?: string | undefined;
-  /** The `{version}` segment of the API paths (default `v1rc`). */
-  apiVersion?: string | undefined;
 }
 
 /**
- * Yoma MMQR credentials and endpoints. A missing credential throws a `ConfigurationError`.
+ * Yoma MMQR credentials and endpoints. A missing setting throws a `ConfigurationError`. The URL
+ * defaults to production.
  */
 export class YomaMmqrConfig {
-  static readonly SANDBOX_URL = 'https://devapi.yomabank.net';
   static readonly PRODUCTION_URL = 'https://paymenthubapi.yomabank.com';
-  static readonly DEFAULT_API_VERSION = 'v1rc';
 
   readonly merchantId: string;
   readonly clientId: string;
   readonly clientSecret: string;
   readonly webhookHashKey: string;
   readonly webhookSecret: string | undefined;
-  readonly sandbox: boolean;
+  /** The `{version}` segment of the API paths. */
+  readonly apiVersion: string;
+  /** Seconds before the default HTTP client gives up on a request. */
+  readonly timeoutSeconds: number;
   /** The base URL in use. */
   readonly baseUrl: string;
-  /** The API version in use. */
-  readonly apiVersion: string;
 
   constructor(options: YomaMmqrConfigOptions) {
     this.merchantId = requireSetting('yoma_mmqr', 'merchant_id', options.merchantId);
     this.clientId = requireSetting('yoma_mmqr', 'client_id', options.clientId);
     this.clientSecret = requireSetting('yoma_mmqr', 'client_secret', options.clientSecret);
     this.webhookHashKey = requireSetting('yoma_mmqr', 'webhook_hashkey', options.webhookHashKey);
+    this.apiVersion = requireSetting('yoma_mmqr', 'api_version', options.apiVersion);
+    this.timeoutSeconds = requireSeconds('yoma_mmqr', 'timeout_in_seconds', options.timeoutSeconds);
     this.webhookSecret = optionalSetting(options.webhookSecret);
-    this.sandbox = parseSandbox(options.sandbox);
-    this.baseUrl = trimUrl(
-      optionalSetting(options.baseUrl) ??
-        (this.sandbox ? YomaMmqrConfig.SANDBOX_URL : YomaMmqrConfig.PRODUCTION_URL),
-    );
-    this.apiVersion = optionalSetting(options.apiVersion) ?? YomaMmqrConfig.DEFAULT_API_VERSION;
+    this.baseUrl = trimUrl(optionalSetting(options.baseUrl) ?? YomaMmqrConfig.PRODUCTION_URL);
   }
 
   /**
    * Reads `YOMA_MMQR_MERCHANT_ID`, `YOMA_MMQR_CLIENT_ID`, `YOMA_MMQR_CLIENT_SECRET`,
-   * `YOMA_MMQR_WEBHOOK_HASHKEY`, `YOMA_MMQR_WEBHOOK_SECRET`, `YOMA_MMQR_SANDBOX`,
-   * `YOMA_MMQR_BASE_URL` and `YOMA_MMQR_API_VERSION`.
+   * `YOMA_MMQR_WEBHOOK_HASHKEY`, `YOMA_MMQR_API_VERSION`, `MYANMAR_PAYMENTS_HTTP_TIMEOUT`,
+   * `YOMA_MMQR_WEBHOOK_SECRET` and `YOMA_MMQR_BASE_URL`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): YomaMmqrConfig {
     return new YomaMmqrConfig({
@@ -98,10 +95,10 @@ export class YomaMmqrConfig {
       clientId: envFirst(env, 'YOMA_MMQR_CLIENT_ID'),
       clientSecret: envFirst(env, 'YOMA_MMQR_CLIENT_SECRET'),
       webhookHashKey: envFirst(env, 'YOMA_MMQR_WEBHOOK_HASHKEY'),
-      webhookSecret: envFirst(env, 'YOMA_MMQR_WEBHOOK_SECRET'),
-      sandbox: envSandbox(env, 'YOMA_MMQR_SANDBOX'),
-      baseUrl: envFirst(env, 'YOMA_MMQR_BASE_URL'),
       apiVersion: envFirst(env, 'YOMA_MMQR_API_VERSION'),
+      timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
+      webhookSecret: envFirst(env, 'YOMA_MMQR_WEBHOOK_SECRET'),
+      baseUrl: envFirst(env, 'YOMA_MMQR_BASE_URL'),
     });
   }
 }
@@ -148,7 +145,7 @@ export class YomaMmqr {
 
   constructor(config: YomaMmqrConfig | YomaMmqrConfigOptions, options: YomaMmqrOptions = {}) {
     this.config = config instanceof YomaMmqrConfig ? config : new YomaMmqrConfig(config);
-    this.transport = new Transport(httpClientFrom(options));
+    this.transport = new Transport(httpClientFrom(options, this.config.timeoutSeconds));
     this.cache = options.tokenCache ?? new MemoryTokenCache();
   }
 

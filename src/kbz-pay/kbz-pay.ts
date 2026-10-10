@@ -10,9 +10,9 @@ import { queryEscape, randomHex } from '../core/crypto.js';
 import {
   defaultEnv,
   envFirst,
-  envSandbox,
-  parseSandbox,
+  HTTP_TIMEOUT_VARIABLE,
   optionalSetting,
+  requireSeconds,
   requireSetting,
   trimUrl,
   type EnvSource,
@@ -40,30 +40,29 @@ export interface KbzPayConfigOptions {
   /** The `merch_code` KBZ issued. */
   merchantCode: string;
   /**
-   * Use the UAT endpoints (default `true`). UAT and production issue separate
-   * credentials. Text is read like a `*_SANDBOX` variable: `false`, `0`, `f`, `no` or `off`
-   * select production.
+   * Seconds before the default HTTP client gives up on a request, a whole number greater than 0
+   * (or its text). A client you pass keeps its own timeout.
    */
-  sandbox?: boolean | string | undefined;
-  /** Overrides the API base URL, e.g. to go through a proxy. */
+  timeoutSeconds: number | string;
+  /** Overrides the API base URL, e.g. to point at UAT or go through a proxy. */
   apiUrl?: string | undefined;
   /** Overrides the PWA checkout URL. A trailing `#` or `#/` is normalized to `#/`. */
   pwaUrl?: string | undefined;
 }
 
 /**
- * KBZ Pay credentials and endpoints. A missing credential throws a `ConfigurationError`.
+ * KBZ Pay credentials and endpoints. A missing setting throws a `ConfigurationError`. The URLs
+ * default to production; UAT and production issue separate credentials.
  */
 export class KbzPayConfig {
-  static readonly SANDBOX_API_URL = 'http://api-uat.kbzpay.com/payment/gateway/uat';
   static readonly PRODUCTION_API_URL = 'https://api.kbzpay.com/payment/gateway';
-  static readonly SANDBOX_PWA_URL = 'https://static.kbzpay.com/pgw/uat/pwa/#/';
   static readonly PRODUCTION_PWA_URL = 'https://wap.kbzpay.com/pgw/pwa/#/';
 
   readonly appId: string;
   readonly appKey: string;
   readonly merchantCode: string;
-  readonly sandbox: boolean;
+  /** Seconds before the default HTTP client gives up on a request. */
+  readonly timeoutSeconds: number;
   /** The API base URL in use. */
   readonly apiUrl: string;
   /** The PWA checkout URL in use, always ending in `/`. */
@@ -73,27 +72,21 @@ export class KbzPayConfig {
     this.appId = requireSetting('kbz_pay', 'app_id', options.appId);
     this.appKey = requireSetting('kbz_pay', 'app_key', options.appKey);
     this.merchantCode = requireSetting('kbz_pay', 'merchant_code', options.merchantCode);
-    this.sandbox = parseSandbox(options.sandbox);
-    this.apiUrl = trimUrl(
-      optionalSetting(options.apiUrl) ??
-        (this.sandbox ? KbzPayConfig.SANDBOX_API_URL : KbzPayConfig.PRODUCTION_API_URL),
-    );
-    this.pwaUrl = `${trimUrl(
-      optionalSetting(options.pwaUrl) ??
-        (this.sandbox ? KbzPayConfig.SANDBOX_PWA_URL : KbzPayConfig.PRODUCTION_PWA_URL),
-    )}/`;
+    this.timeoutSeconds = requireSeconds('kbz_pay', 'timeout_in_seconds', options.timeoutSeconds);
+    this.apiUrl = trimUrl(optionalSetting(options.apiUrl) ?? KbzPayConfig.PRODUCTION_API_URL);
+    this.pwaUrl = `${trimUrl(optionalSetting(options.pwaUrl) ?? KbzPayConfig.PRODUCTION_PWA_URL)}/`;
   }
 
   /**
-   * Reads `KBZ_PAY_APP_ID`, `KBZ_PAY_APP_KEY`, `KBZ_PAY_MERCHANT_CODE`, `KBZ_PAY_SANDBOX`,
-   * `KBZ_PAY_BASE_URL` and `KBZ_PAY_PWA_BASE_REDIRECT_URL`.
+   * Reads `KBZ_PAY_APP_ID`, `KBZ_PAY_APP_KEY`, `KBZ_PAY_MERCHANT_CODE`,
+   * `MYANMAR_PAYMENTS_HTTP_TIMEOUT`, `KBZ_PAY_BASE_URL` and `KBZ_PAY_PWA_BASE_REDIRECT_URL`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): KbzPayConfig {
     return new KbzPayConfig({
       appId: envFirst(env, 'KBZ_PAY_APP_ID'),
       appKey: envFirst(env, 'KBZ_PAY_APP_KEY'),
       merchantCode: envFirst(env, 'KBZ_PAY_MERCHANT_CODE'),
-      sandbox: envSandbox(env, 'KBZ_PAY_SANDBOX'),
+      timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
       apiUrl: envFirst(env, 'KBZ_PAY_BASE_URL'),
       pwaUrl: envFirst(env, 'KBZ_PAY_PWA_BASE_REDIRECT_URL'),
     });
@@ -150,7 +143,7 @@ export class KbzPay {
   constructor(config: KbzPayConfig | KbzPayConfigOptions, options: GatewayOptions = {}) {
     this.config = config instanceof KbzPayConfig ? config : new KbzPayConfig(config);
     this.signer = new KbzPaySigner(this.config.appKey);
-    this.transport = new Transport(httpClientFrom(options));
+    this.transport = new Transport(httpClientFrom(options, this.config.timeoutSeconds));
   }
 
   /** A gateway configured from the `KBZ_PAY_*` environment variables. */

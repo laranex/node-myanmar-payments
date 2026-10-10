@@ -29,7 +29,12 @@ afterEach(() => {
 
 function gateway(fake = new FakeFetch()): AyaPay {
   return new AyaPay(
-    { appKey: 'app-key', appSecret: 'test-secret', baseUrl: 'https://aya.test' },
+    {
+      appKey: 'app-key',
+      appSecret: 'test-secret',
+      timeoutSeconds: 30,
+      baseUrl: 'https://aya.test',
+    },
     { fetch: fake.fetch },
   );
 }
@@ -404,17 +409,23 @@ describe('AyaPay', () => {
 });
 
 describe('AyaPayConfig', () => {
-  it('selects endpoints and names a missing key', () => {
-    expect(new AyaPayConfig({ appKey: 'k', appSecret: 's' }).baseUrl).toBe(
-      AyaPayConfig.SANDBOX_URL,
-    );
-    expect(new AyaPayConfig({ appKey: 'k', appSecret: 's', sandbox: false }).baseUrl).toBe(
+  it('defaults to production and names a missing key', () => {
+    expect(new AyaPayConfig({ appKey: 'k', appSecret: 's', timeoutSeconds: 30 }).baseUrl).toBe(
       AyaPayConfig.PRODUCTION_URL,
     );
-    expect(caught(() => new AyaPayConfig({ appKey: 'k', appSecret: '' }))).toMatchObject({
+    expect(
+      caught(() => new AyaPayConfig({ appKey: 'k', appSecret: '', timeoutSeconds: 30 })),
+    ).toMatchObject({
       gateway: 'aya_pay',
       key: 'app_secret',
     });
+    expect(
+      caught(() => new AyaPayConfig({ appKey: 'k', appSecret: 's', timeoutSeconds: '' })),
+    ).toMatchObject({ gateway: 'aya_pay', key: 'timeout_in_seconds' });
+    expect(
+      (caught(() => new AyaPayConfig({ appKey: 'k', appSecret: 's', timeoutSeconds: 0 })) as Error)
+        .message,
+    ).toBe('The aya_pay configuration [timeout_in_seconds] must be a whole number greater than 0.');
   });
 
   it('reads AYA_PAY_* and falls back to AYA_PGW_*', () => {
@@ -423,15 +434,25 @@ describe('AyaPayConfig', () => {
         AYA_PGW_APP_KEY: 'k',
         AYA_PGW_APP_SECRET: 's',
         AYA_PGW_BASE_URL: 'https://pgw.test/',
-        AYA_PAY_SANDBOX: '0',
+        MYANMAR_PAYMENTS_HTTP_TIMEOUT: '15',
       }),
-    ).toMatchObject({ appKey: 'k', appSecret: 's', baseUrl: 'https://pgw.test', sandbox: false });
+    ).toMatchObject({
+      appKey: 'k',
+      appSecret: 's',
+      baseUrl: 'https://pgw.test',
+      timeoutSeconds: 15,
+    });
     expect(
-      AyaPay.fromEnv({ AYA_PAY_APP_KEY: 'a', AYA_PGW_APP_KEY: 'b', AYA_PAY_APP_SECRET: 's' }).config
-        .appKey,
+      AyaPay.fromEnv({
+        AYA_PAY_APP_KEY: 'a',
+        AYA_PGW_APP_KEY: 'b',
+        AYA_PAY_APP_SECRET: 's',
+        MYANMAR_PAYMENTS_HTTP_TIMEOUT: '30',
+      }).config.appKey,
     ).toBe('a');
     vi.stubEnv('AYA_PAY_APP_KEY', 'p');
     vi.stubEnv('AYA_PAY_APP_SECRET', 'p');
+    vi.stubEnv('MYANMAR_PAYMENTS_HTTP_TIMEOUT', '30');
     try {
       expect(AyaPay.fromEnv().config.appKey).toBe('p');
     } finally {
@@ -442,7 +463,10 @@ describe('AyaPayConfig', () => {
   it('exports the gateway from the aya-pay subpath', () => {
     expect(subpath.AyaPay).toBe(AyaPay);
     expect(subpath.AyaPayMethod).toEqual({ Web: 'WEB', Qr: 'QR', Noti: 'NOTI' });
-    expect(new AyaPay(new AyaPayConfig({ appKey: 'k', appSecret: 's' })).config.appKey).toBe('k');
+    expect(
+      new AyaPay(new AyaPayConfig({ appKey: 'k', appSecret: 's', timeoutSeconds: 30 })).config
+        .appKey,
+    ).toBe('k');
     expect(new AyaPayService({ name: 'X', key: 'x', methods: [] }).unknownMethods).toEqual([]);
   });
 });

@@ -15,33 +15,29 @@ export function envFirst(env: EnvSource, ...keys: string[]): string {
 }
 
 /**
- * Reads a `*_SANDBOX` variable. Only `false`, `0`, `f`, `no` and `off` (any case) select
- * production; unset or unrecognized values mean sandbox.
+ * A required whole number of seconds: an integer greater than 0, or text such as `'300'`. Unset
+ * or blank throws the missing {@link ConfigurationError}; anything else throws the invalid one.
  *
  * @internal
  */
-export function envSandbox(env: EnvSource, key: string): boolean {
-  return parseSandbox(env[key] ?? '');
-}
-
-/**
- * A `sandbox` setting: booleans as is, text parsed like a `*_SANDBOX` variable (`false`, `0`, `f`,
- * `no` and `off` in any case select production; anything else means sandbox), unset means sandbox.
- *
- * @internal
- */
-export function parseSandbox(value: boolean | string | undefined | null): boolean {
-  if (typeof value === 'boolean') {
-    return value;
+export function requireSeconds(gateway: string, key: string, value: unknown): number {
+  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+    throw new ConfigurationError(gateway, key);
   }
-  return !['false', '0', 'f', 'no', 'off'].includes((value ?? '').trim().toLowerCase());
+  let seconds: number | undefined;
+  if (typeof value === 'number' && Number.isSafeInteger(value)) {
+    seconds = value;
+  } else if (typeof value === 'string' && /^[+-]?\d+$/.test(value.trim())) {
+    seconds = Number.parseInt(value.trim(), 10);
+  }
+  if (seconds === undefined || !Number.isSafeInteger(seconds) || seconds <= 0) {
+    throw new ConfigurationError(gateway, key, true);
+  }
+  return seconds;
 }
 
-/** An integer variable, or `undefined` when unset or not an integer. @internal */
-export function envInt(env: EnvSource, key: string): number | undefined {
-  const value = env[key]?.trim() ?? '';
-  return /^[+-]?\d+$/.test(value) ? Number.parseInt(value, 10) : undefined;
-}
+/** The variable holding the HTTP timeout of every gateway that calls an API. @internal */
+export const HTTP_TIMEOUT_VARIABLE = 'MYANMAR_PAYMENTS_HTTP_TIMEOUT';
 
 /** The trimmed value, or throws a {@link ConfigurationError} naming `key`. @internal */
 export function requireSetting(gateway: string, key: string, value: unknown): string {

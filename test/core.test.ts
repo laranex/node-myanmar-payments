@@ -12,7 +12,6 @@ import {
   AppPayment,
   CallbackRequest,
   ConfigurationError,
-  DEFAULT_TIMEOUT_MS,
   FetchHttpClient,
   FormPayment,
   InvalidPaymentDataError,
@@ -419,6 +418,11 @@ describe('errors', () => {
 
     const config = new ConfigurationError('kbz_pay', 'app_key');
     expect(config.message).toBe('The kbz_pay configuration is missing [app_key].');
+    const invalidSetting = new ConfigurationError('wave_money', 'time_to_live_in_seconds', true);
+    expect(invalidSetting).toMatchObject({ gateway: 'wave_money', key: 'time_to_live_in_seconds' });
+    expect(invalidSetting.message).toBe(
+      'The wave_money configuration [time_to_live_in_seconds] must be a whole number greater than 0.',
+    );
 
     for (const error of [invalid, api, signature, config]) {
       expect(error).toBeInstanceOf(PaymentError);
@@ -451,7 +455,7 @@ describe('MemoryTokenCache', () => {
 describe('FetchHttpClient and transport', () => {
   it('posts compact JSON with merged headers and reads exact numbers', async () => {
     const fake = new FakeFetch({ body: '{"result":"SUCCESS","amount":1000.50}' });
-    const transport = new Transport(new FetchHttpClient({ fetch: fake.fetch }));
+    const transport = new Transport(new FetchHttpClient({ fetch: fake.fetch, timeoutMs: 1000 }));
     const response = await transport.postJson(
       'https://api.test/precreate',
       { url: 'https://shop.test/?a=1&b=2', name: 'ကျပ်' },
@@ -472,10 +476,9 @@ describe('FetchHttpClient and transport', () => {
 
   it('posts urlencoded forms and treats non-JSON bodies as empty', async () => {
     const fake = new FakeFetch({ status: 400, body: 'not json' });
-    const response = await new Transport(new FetchHttpClient({ fetch: fake.fetch })).postForm(
-      'https://api.test/pay',
-      { amount: '1000', 'order id': 'A&B' },
-    );
+    const response = await new Transport(
+      new FetchHttpClient({ fetch: fake.fetch, timeoutMs: 1000 }),
+    ).postForm('https://api.test/pay', { amount: '1000', 'order id': 'A&B' });
     expect(fake.last().body).toBe('amount=1000&order+id=A%26B');
     expect(fake.last().headers).toMatchObject({
       'content-type': 'application/x-www-form-urlencoded',
@@ -487,7 +490,9 @@ describe('FetchHttpClient and transport', () => {
 
   it('turns network failures into ApiErrors with the cause', async () => {
     const cause = new TypeError('fetch failed');
-    const transport = new Transport(new FetchHttpClient({ fetch: () => Promise.reject(cause) }));
+    const transport = new Transport(
+      new FetchHttpClient({ fetch: () => Promise.reject(cause), timeoutMs: 1000 }),
+    );
     const error = (await rejected(transport.postJson('https://api.test/x', {}))) as ApiError;
     expect(error).toBeInstanceOf(ApiError);
     expect(error.message).toBe('Could not reach https://api.test/x: fetch failed');
@@ -504,7 +509,10 @@ describe('FetchHttpClient and transport', () => {
     const broken: FetchFunction = async () =>
       ({ status: 502, text: () => Promise.reject(new Error('boom')) }) as unknown as Response;
     const error = (await rejected(
-      new Transport(new FetchHttpClient({ fetch: broken })).postJson('https://api.test/x', {}),
+      new Transport(new FetchHttpClient({ fetch: broken, timeoutMs: 1000 })).postJson(
+        'https://api.test/x',
+        {},
+      ),
     )) as ApiError;
     expect(error.httpStatus).toBe(502);
     expect(error.message).toBe('Could not read response from https://api.test/x: boom');
@@ -513,7 +521,7 @@ describe('FetchHttpClient and transport', () => {
     expect(
       (
         (await rejected(
-          new FetchHttpClient({ fetch: nonError }).send({
+          new FetchHttpClient({ fetch: nonError, timeoutMs: 1000 }).send({
             method: 'POST',
             url: 'https://x.test',
             headers: {},
@@ -534,7 +542,7 @@ describe('FetchHttpClient and transport', () => {
       });
 
     const controller = new AbortController();
-    const pending = new Transport(new FetchHttpClient({ fetch: hang })).postJson(
+    const pending = new Transport(new FetchHttpClient({ fetch: hang, timeoutMs: 1000 })).postJson(
       'https://api.test/x',
       {},
       {},
@@ -579,14 +587,13 @@ describe('FetchHttpClient and transport', () => {
       body: '',
     });
     expect(signal).toBeNull();
-    expect(DEFAULT_TIMEOUT_MS).toBe(30_000);
   });
 
   it('uses the global fetch by default and fails clearly without one', async () => {
     const fake = new FakeFetch({ body: {} });
     vi.stubGlobal('fetch', fake.fetch);
     try {
-      await new FetchHttpClient().send({
+      await new FetchHttpClient({ timeoutMs: 1000 }).send({
         method: 'POST',
         url: 'https://x.test/a',
         headers: {},
@@ -595,7 +602,7 @@ describe('FetchHttpClient and transport', () => {
       expect(fake.requests).toHaveLength(1);
       vi.stubGlobal('fetch', undefined);
       await expect(
-        new FetchHttpClient().send({
+        new FetchHttpClient({ timeoutMs: 1000 }).send({
           method: 'POST',
           url: 'https://x.test/a',
           headers: {},

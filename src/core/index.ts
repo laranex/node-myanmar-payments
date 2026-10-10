@@ -25,7 +25,6 @@ export {
   SignatureVerificationError,
 } from './errors.js';
 export {
-  DEFAULT_TIMEOUT_MS,
   FetchHttpClient,
   type FetchFunction,
   type FetchHttpClientOptions,
