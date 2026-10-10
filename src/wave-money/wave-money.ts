@@ -4,10 +4,9 @@ import { hmacSha256Hex, queryEscape, randomHex, safeEqual } from '../core/crypto
 import {
   defaultEnv,
   envFirst,
-  envInt,
-  envSandbox,
-  parseSandbox,
+  HTTP_TIMEOUT_VARIABLE,
   optionalSetting,
+  requireSeconds,
   requireSetting,
   trimUrl,
   type EnvSource,
@@ -33,35 +32,34 @@ export interface WaveMoneyConfigOptions {
   secretKey: string;
   /** Your business name, shown on Wave's payment page. */
   merchantName: string;
-  /** How long the customer has to pay, in seconds (default 300). */
-  timeToLiveSeconds?: number | undefined;
+  /** How long the customer has to pay, in seconds: a whole number greater than 0 (or its text). */
+  timeToLiveSeconds: number | string;
   /**
-   * Use the test environment (default `true`).
-   * Text is read like a `*_SANDBOX` variable: `false`, `0`, `f`, `no` or `off` select production.
+   * Seconds before the default HTTP client gives up on a request, a whole number greater than 0
+   * (or its text). A client you pass keeps its own timeout.
    */
-  sandbox?: boolean | string | undefined;
-  /** Overrides the API base URL. */
+  timeoutSeconds: number | string;
+  /** Overrides the API base URL, e.g. to point at UAT. */
   baseUrl?: string | undefined;
   /** Overrides the host the customer is redirected to. Wave serves it without the API port. */
   authenticateUrl?: string | undefined;
 }
 
 /**
- * Wave Money credentials and endpoints. A missing credential throws a `ConfigurationError`.
+ * Wave Money credentials and endpoints. A missing setting throws a `ConfigurationError`. The URLs
+ * default to production.
  */
 export class WaveMoneyConfig {
-  static readonly SANDBOX_URL = 'https://preprodpayments.wavemoney.io:8107';
   static readonly PRODUCTION_URL = 'https://payments.wavemoney.io';
-  static readonly SANDBOX_AUTHENTICATE_URL = 'https://preprodpayments.wavemoney.io';
   static readonly PRODUCTION_AUTHENTICATE_URL = 'https://payments.wavemoney.io';
-  static readonly DEFAULT_TIME_TO_LIVE_SECONDS = 300;
 
   readonly merchantId: string;
   readonly secretKey: string;
   readonly merchantName: string;
   /** Seconds the customer has to pay. */
   readonly timeToLiveSeconds: number;
-  readonly sandbox: boolean;
+  /** Seconds before the default HTTP client gives up on a request. */
+  readonly timeoutSeconds: number;
   /** The API base URL in use. */
   readonly baseUrl: string;
   /** The host the customer is redirected to. */
@@ -71,36 +69,34 @@ export class WaveMoneyConfig {
     this.merchantId = requireSetting('wave_money', 'merchant_id', options.merchantId);
     this.secretKey = requireSetting('wave_money', 'secret_key', options.secretKey);
     this.merchantName = requireSetting('wave_money', 'merchant_name', options.merchantName);
-    const ttl = options.timeToLiveSeconds;
-    this.timeToLiveSeconds =
-      ttl !== undefined && Number.isInteger(ttl) && ttl > 0
-        ? ttl
-        : WaveMoneyConfig.DEFAULT_TIME_TO_LIVE_SECONDS;
-    this.sandbox = parseSandbox(options.sandbox);
-    this.baseUrl = trimUrl(
-      optionalSetting(options.baseUrl) ??
-        (this.sandbox ? WaveMoneyConfig.SANDBOX_URL : WaveMoneyConfig.PRODUCTION_URL),
+    this.timeToLiveSeconds = requireSeconds(
+      'wave_money',
+      'time_to_live_in_seconds',
+      options.timeToLiveSeconds,
     );
+    this.timeoutSeconds = requireSeconds(
+      'wave_money',
+      'timeout_in_seconds',
+      options.timeoutSeconds,
+    );
+    this.baseUrl = trimUrl(optionalSetting(options.baseUrl) ?? WaveMoneyConfig.PRODUCTION_URL);
     this.authenticateUrl = trimUrl(
-      optionalSetting(options.authenticateUrl) ??
-        (this.sandbox
-          ? WaveMoneyConfig.SANDBOX_AUTHENTICATE_URL
-          : WaveMoneyConfig.PRODUCTION_AUTHENTICATE_URL),
+      optionalSetting(options.authenticateUrl) ?? WaveMoneyConfig.PRODUCTION_AUTHENTICATE_URL,
     );
   }
 
   /**
-   * Reads `WAVE_MONEY_MERCHANT_ID`, `WAVE_MONEY_SECRET_KEY`, `WAVE_MONEY_MERCHANT_NAME` (falling back
-   * to `APP_NAME`), `WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS`, `WAVE_MONEY_SANDBOX`, `WAVE_MONEY_BASE_URL`
+   * Reads `WAVE_MONEY_MERCHANT_ID`, `WAVE_MONEY_SECRET_KEY`, `WAVE_MONEY_MERCHANT_NAME`,
+   * `WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS`, `MYANMAR_PAYMENTS_HTTP_TIMEOUT`, `WAVE_MONEY_BASE_URL`
    * and `WAVE_MONEY_AUTHENTICATE_URL`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): WaveMoneyConfig {
     return new WaveMoneyConfig({
       merchantId: envFirst(env, 'WAVE_MONEY_MERCHANT_ID'),
       secretKey: envFirst(env, 'WAVE_MONEY_SECRET_KEY'),
-      merchantName: envFirst(env, 'WAVE_MONEY_MERCHANT_NAME', 'APP_NAME'),
-      timeToLiveSeconds: envInt(env, 'WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS'),
-      sandbox: envSandbox(env, 'WAVE_MONEY_SANDBOX'),
+      merchantName: envFirst(env, 'WAVE_MONEY_MERCHANT_NAME'),
+      timeToLiveSeconds: envFirst(env, 'WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS'),
+      timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
       baseUrl: envFirst(env, 'WAVE_MONEY_BASE_URL'),
       authenticateUrl: envFirst(env, 'WAVE_MONEY_AUTHENTICATE_URL'),
     });
@@ -174,7 +170,7 @@ export class WaveMoney {
 
   constructor(config: WaveMoneyConfig | WaveMoneyConfigOptions, options: GatewayOptions = {}) {
     this.config = config instanceof WaveMoneyConfig ? config : new WaveMoneyConfig(config);
-    this.transport = new Transport(httpClientFrom(options));
+    this.transport = new Transport(httpClientFrom(options, this.config.timeoutSeconds));
   }
 
   /** A gateway configured from the `WAVE_MONEY_*` environment variables. */

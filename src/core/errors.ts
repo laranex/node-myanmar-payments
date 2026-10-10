@@ -71,16 +71,25 @@ export class SignatureVerificationError extends PaymentError {
 }
 
 /**
- * Thrown when a gateway is missing a credential or setting it needs.
+ * Thrown when a gateway is missing a credential or setting it needs, or a whole-number setting
+ * is not a whole number greater than 0.
  */
 export class ConfigurationError extends PaymentError {
   /** The gateway, e.g. `kbz_pay`. */
   readonly gateway: string;
-  /** The missing setting, e.g. `app_key`. */
+  /** The missing or invalid setting, e.g. `app_key`. */
   readonly key: string;
 
-  constructor(gateway: string, key: string) {
-    super(`The ${gateway} configuration is missing [${key}].`);
+  /**
+   * @param invalid `true` when the setting is set but is not a whole number greater than 0;
+   *   `false` (the default) when it is missing.
+   */
+  constructor(gateway: string, key: string, invalid = false) {
+    super(
+      invalid
+        ? `The ${gateway} configuration [${key}] must be a whole number greater than 0.`
+        : `The ${gateway} configuration is missing [${key}].`,
+    );
     this.gateway = gateway;
     this.key = key;
   }

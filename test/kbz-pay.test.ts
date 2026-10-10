@@ -10,6 +10,8 @@ import {
   KbzPayConfig,
   KbzPaySigner,
   SignatureVerificationError,
+  type FetchFunction,
+  type KbzPayConfigOptions,
   type KbzPayPaymentData,
   type PaymentStatus,
 } from '../src/index.js';
@@ -31,6 +33,7 @@ const config = {
   appId: 'kp123',
   appKey: 'secret-key',
   merchantCode: '100001',
+  timeoutSeconds: 30,
   apiUrl: 'https://kbz.test',
 };
 
@@ -121,7 +124,7 @@ describe('KbzPay', () => {
     expect(request.sign).toBe(signer.sign({ ...common, ...biz }));
 
     expect(payment.flow).toBe('redirect');
-    expect(payment.url.startsWith(`${KbzPayConfig.SANDBOX_PWA_URL}?`)).toBe(true);
+    expect(payment.url.startsWith(`${KbzPayConfig.PRODUCTION_PWA_URL}?`)).toBe(true);
     expect(payment.gatewayReference).toBe('PREPAY123');
     expect(payment.orderId).toBe('ORDER_1');
     expect(payment.raw).toMatchObject({ prepay_id: 'PREPAY123' });
@@ -345,6 +348,18 @@ describe('KbzPay', () => {
     expect((error.cause as Error).name).toBe('TimeoutError');
   });
 
+  it('gives the default client the configured timeout', async () => {
+    const hang: FetchFunction = (_input, init) =>
+      new Promise((_resolve, reject) =>
+        init.signal?.addEventListener('abort', () => reject(init.signal?.reason)),
+      );
+    const started = performance.now();
+    const timed = new KbzPay({ ...config, timeoutSeconds: 1 }, { fetch: hang });
+    const error = (await rejected(timed.status('ORDER_1'))) as ApiError;
+    expect((error.cause as Error).name).toBe('TimeoutError');
+    expect(performance.now() - started).toBeGreaterThanOrEqual(900);
+  });
+
   it('is safe for concurrent use', async () => {
     const kbz = new KbzPay(config, {
       fetch: async () =>
@@ -479,15 +494,33 @@ describe('KbzPay', () => {
 
 describe('KbzPayConfig', () => {
   it('names a missing key', () => {
-    expect(
-      caught(() => new KbzPayConfig({ appId: 'a', appKey: '', merchantCode: 'c' })),
-    ).toMatchObject({
+    expect(caught(() => new KbzPayConfig({ ...config, appKey: '' }))).toMatchObject({
       gateway: 'kbz_pay',
       key: 'app_key',
     });
-    expect(() => new KbzPay({ appId: '', appKey: 'b', merchantCode: 'c' })).toThrow(
-      ConfigurationError,
-    );
+    expect(() => new KbzPay({ ...config, appId: '' })).toThrow(ConfigurationError);
+  });
+
+  it('requires a timeout of a whole number of seconds', () => {
+    const { timeoutSeconds: _timeout, ...noTimeout } = config;
+    expect(
+      caught(() => new KbzPayConfig(noTimeout as unknown as KbzPayConfigOptions)),
+    ).toMatchObject({
+      key: 'timeout_in_seconds',
+      message: 'The kbz_pay configuration is missing [timeout_in_seconds].',
+    });
+    for (const timeoutSeconds of [0, -5, 1.5, 'ten', '2.5', '0', true]) {
+      expect(
+        caught(
+          () => new KbzPayConfig({ ...config, timeoutSeconds } as unknown as KbzPayConfigOptions),
+        ),
+      ).toMatchObject({
+        key: 'timeout_in_seconds',
+        message:
+          'The kbz_pay configuration [timeout_in_seconds] must be a whole number greater than 0.',
+      });
+    }
+    expect(new KbzPayConfig({ ...config, timeoutSeconds: ' 15 ' }).timeoutSeconds).toBe(15);
   });
 
   it('normalizes the PWA URL so the query always follows "#/"', () => {
@@ -495,22 +528,18 @@ describe('KbzPayConfig', () => {
       'https://static.kbzpay.com/pgw/uat/pwa/#',
       'https://static.kbzpay.com/pgw/uat/pwa/#/',
     ]) {
-      expect(new KbzPayConfig({ ...config, pwaUrl }).pwaUrl).toBe(KbzPayConfig.SANDBOX_PWA_URL);
+      expect(new KbzPayConfig({ ...config, pwaUrl }).pwaUrl).toBe(
+        'https://static.kbzpay.com/pgw/uat/pwa/#/',
+      );
     }
   });
 
-  it('selects the sandbox or production endpoints', () => {
-    const sandbox = new KbzPayConfig({ appId: 'a', appKey: 'b', merchantCode: 'c' });
-    expect(sandbox).toMatchObject({
-      sandbox: true,
-      apiUrl: KbzPayConfig.SANDBOX_API_URL,
-      pwaUrl: KbzPayConfig.SANDBOX_PWA_URL,
-    });
+  it('defaults to the production endpoints', () => {
     const production = new KbzPayConfig({
       appId: 'a',
       appKey: 'b',
       merchantCode: 'c',
-      sandbox: false,
+      timeoutSeconds: 30,
     });
     expect(production).toMatchObject({
       apiUrl: KbzPayConfig.PRODUCTION_API_URL,
@@ -526,7 +555,7 @@ describe('KbzPayConfig', () => {
       KBZ_PAY_APP_ID: 'kp1',
       KBZ_PAY_APP_KEY: 'key',
       KBZ_PAY_MERCHANT_CODE: '200',
-      KBZ_PAY_SANDBOX: 'false',
+      MYANMAR_PAYMENTS_HTTP_TIMEOUT: '20',
       KBZ_PAY_BASE_URL: 'https://api.test/',
       KBZ_PAY_PWA_BASE_REDIRECT_URL: 'https://pwa.test/#',
     };
@@ -534,7 +563,7 @@ describe('KbzPayConfig', () => {
       appId: 'kp1',
       appKey: 'key',
       merchantCode: '200',
-      sandbox: false,
+      timeoutSeconds: 20,
       apiUrl: 'https://api.test',
       pwaUrl: 'https://pwa.test/#/',
     });
@@ -546,6 +575,7 @@ describe('KbzPayConfig', () => {
     vi.stubEnv('KBZ_PAY_APP_ID', 'from-process');
     vi.stubEnv('KBZ_PAY_APP_KEY', 'k');
     vi.stubEnv('KBZ_PAY_MERCHANT_CODE', 'm');
+    vi.stubEnv('MYANMAR_PAYMENTS_HTTP_TIMEOUT', '30');
     try {
       expect(KbzPayConfig.fromEnv().appId).toBe('from-process');
       expect(KbzPay.fromEnv().config.appId).toBe('from-process');

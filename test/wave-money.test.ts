@@ -34,6 +34,8 @@ function gateway(fake = new FakeFetch()): WaveMoney {
       merchantId: 'testmerchantID',
       secretKey: 'test-secret',
       merchantName: 'Shop',
+      timeToLiveSeconds: 300,
+      timeoutSeconds: 30,
       baseUrl: 'https://wave.test',
       authenticateUrl: 'https://preprodpayments.wavemoney.io',
     },
@@ -314,47 +316,64 @@ describe('WaveMoney', () => {
   });
 });
 
+const settings = {
+  merchantId: 'm',
+  secretKey: 's',
+  merchantName: 'Shop',
+  timeToLiveSeconds: 300,
+  timeoutSeconds: 30,
+};
+
 describe('WaveMoneyConfig', () => {
-  it('uses the documented hosts', () => {
-    const sandbox = new WaveMoneyConfig({ merchantId: 'm', secretKey: 's', merchantName: 'Shop' });
-    expect(sandbox).toMatchObject({
-      baseUrl: 'https://preprodpayments.wavemoney.io:8107',
-      authenticateUrl: 'https://preprodpayments.wavemoney.io',
-      timeToLiveSeconds: 300,
-    });
-    const production = new WaveMoneyConfig({
-      merchantId: 'm',
-      secretKey: 's',
-      merchantName: 'Shop',
-      sandbox: false,
-    });
-    expect(production).toMatchObject({
+  it('defaults to the production hosts', () => {
+    expect(new WaveMoneyConfig(settings)).toMatchObject({
       baseUrl: WaveMoneyConfig.PRODUCTION_URL,
       authenticateUrl: WaveMoneyConfig.PRODUCTION_AUTHENTICATE_URL,
+      timeToLiveSeconds: 300,
+      timeoutSeconds: 30,
     });
-    expect(
-      new WaveMoneyConfig({
-        merchantId: 'm',
-        secretKey: 's',
-        merchantName: 'S',
-        timeToLiveSeconds: -1,
-      }).timeToLiveSeconds,
-    ).toBe(300);
-    expect(
-      caught(() => new WaveMoneyConfig({ merchantId: 'm', secretKey: 's', merchantName: '' })),
-    ).toMatchObject({
+    expect(caught(() => new WaveMoneyConfig({ ...settings, merchantName: '' }))).toMatchObject({
       gateway: 'wave_money',
       key: 'merchant_name',
     });
   });
 
-  it('reads the environment, falling back to APP_NAME', () => {
+  it('requires the time to live and the timeout as whole numbers of seconds', () => {
+    for (const key of ['timeToLiveSeconds', 'timeoutSeconds'] as const) {
+      const name = key === 'timeToLiveSeconds' ? 'time_to_live_in_seconds' : 'timeout_in_seconds';
+      for (const value of [undefined, '', '  ']) {
+        expect(
+          caught(
+            () => new WaveMoneyConfig({ ...settings, [key]: value } as unknown as typeof settings),
+          ),
+        ).toMatchObject({
+          key: name,
+          message: `The wave_money configuration is missing [${name}].`,
+        });
+      }
+      for (const value of [0, -1, 2.5, 'five', '-3']) {
+        expect(
+          caught(
+            () => new WaveMoneyConfig({ ...settings, [key]: value } as unknown as typeof settings),
+          ),
+        ).toMatchObject({
+          key: name,
+          message: `The wave_money configuration [${name}] must be a whole number greater than 0.`,
+        });
+      }
+    }
+    expect(new WaveMoneyConfig({ ...settings, timeToLiveSeconds: '+600' }).timeToLiveSeconds).toBe(
+      600,
+    );
+  });
+
+  it('reads the environment', () => {
     const env = {
       WAVE_MONEY_MERCHANT_ID: 'm1',
       WAVE_MONEY_SECRET_KEY: 's1',
-      APP_NAME: 'My Shop',
+      WAVE_MONEY_MERCHANT_NAME: 'My Shop',
       WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS: '600',
-      WAVE_MONEY_SANDBOX: 'off',
+      MYANMAR_PAYMENTS_HTTP_TIMEOUT: '20',
       WAVE_MONEY_BASE_URL: 'https://wave.test/',
       WAVE_MONEY_AUTHENTICATE_URL: 'https://auth.test',
     };
@@ -362,16 +381,19 @@ describe('WaveMoneyConfig', () => {
       merchantId: 'm1',
       merchantName: 'My Shop',
       timeToLiveSeconds: 600,
-      sandbox: false,
+      timeoutSeconds: 20,
       baseUrl: 'https://wave.test',
       authenticateUrl: 'https://auth.test',
     });
-    expect(
-      WaveMoney.fromEnv({ ...env, WAVE_MONEY_MERCHANT_NAME: 'Wave Shop' }).config.merchantName,
-    ).toBe('Wave Shop');
+    const { WAVE_MONEY_MERCHANT_NAME: _name, ...withoutName } = env;
+    expect(caught(() => WaveMoney.fromEnv({ ...withoutName, APP_NAME: 'App' }))).toMatchObject({
+      key: 'merchant_name',
+    });
     vi.stubEnv('WAVE_MONEY_MERCHANT_ID', 'p');
     vi.stubEnv('WAVE_MONEY_SECRET_KEY', 'p');
     vi.stubEnv('WAVE_MONEY_MERCHANT_NAME', 'p');
+    vi.stubEnv('WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS', '300');
+    vi.stubEnv('MYANMAR_PAYMENTS_HTTP_TIMEOUT', '30');
     try {
       expect(WaveMoney.fromEnv().config.merchantId).toBe('p');
     } finally {
@@ -382,9 +404,6 @@ describe('WaveMoneyConfig', () => {
   it('exports the gateway from the wave-money subpath', () => {
     expect(subpath.WaveMoney).toBe(WaveMoney);
     expect(subpath.WaveMoneyConfig).toBe(WaveMoneyConfig);
-    expect(
-      new WaveMoney(new WaveMoneyConfig({ merchantId: 'm', secretKey: 's', merchantName: 'S' }))
-        .config.merchantId,
-    ).toBe('m');
+    expect(new WaveMoney(new WaveMoneyConfig(settings)).config.merchantId).toBe('m');
   });
 });

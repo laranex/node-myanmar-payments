@@ -4,8 +4,6 @@ import { hmacSha256Base64, randomHex, safeEqual } from '../core/crypto.js';
 import {
   defaultEnv,
   envFirst,
-  envSandbox,
-  parseSandbox,
   optionalSetting,
   requireSetting,
   trimUrl,
@@ -26,26 +24,20 @@ export interface CyberSourceConfigOptions {
   accessKey: string;
   /** The profile's secret key, which signs the fields. */
   secretKey: string;
-  /**
-   * Use the test environment (default `true`).
-   * Text is read like a `*_SANDBOX` variable: `false`, `0`, `f`, `no` or `off` select production.
-   */
-  sandbox?: boolean | string | undefined;
-  /** Overrides the Secure Acceptance base URL. */
+  /** Overrides the Secure Acceptance base URL, e.g. to point at the test environment. */
   baseUrl?: string | undefined;
 }
 
 /**
- * A CyberSource Secure Acceptance profile. A missing credential throws a `ConfigurationError`.
+ * A CyberSource Secure Acceptance profile. A missing credential throws a `ConfigurationError`. The
+ * URL defaults to production.
  */
 export class CyberSourceConfig {
-  static readonly SANDBOX_URL = 'https://testsecureacceptance.cybersource.com';
   static readonly PRODUCTION_URL = 'https://secureacceptance.cybersource.com';
 
   readonly profileId: string;
   readonly accessKey: string;
   readonly secretKey: string;
-  readonly sandbox: boolean;
   /** The base URL in use. */
   readonly baseUrl: string;
 
@@ -53,23 +45,18 @@ export class CyberSourceConfig {
     this.profileId = requireSetting('cyber_source', 'profile_id', options.profileId);
     this.accessKey = requireSetting('cyber_source', 'access_key', options.accessKey);
     this.secretKey = requireSetting('cyber_source', 'secret_key', options.secretKey);
-    this.sandbox = parseSandbox(options.sandbox);
-    this.baseUrl = trimUrl(
-      optionalSetting(options.baseUrl) ??
-        (this.sandbox ? CyberSourceConfig.SANDBOX_URL : CyberSourceConfig.PRODUCTION_URL),
-    );
+    this.baseUrl = trimUrl(optionalSetting(options.baseUrl) ?? CyberSourceConfig.PRODUCTION_URL);
   }
 
   /**
    * Reads `CYBER_SOURCE_PROFILE_ID`, `CYBER_SOURCE_ACCESS_KEY`, `CYBER_SOURCE_SECRET_KEY`,
-   * `CYBER_SOURCE_SANDBOX` and `CYBER_SOURCE_BASE_URL`.
+   * and `CYBER_SOURCE_BASE_URL`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): CyberSourceConfig {
     return new CyberSourceConfig({
       profileId: envFirst(env, 'CYBER_SOURCE_PROFILE_ID'),
       accessKey: envFirst(env, 'CYBER_SOURCE_ACCESS_KEY'),
       secretKey: envFirst(env, 'CYBER_SOURCE_SECRET_KEY'),
-      sandbox: envSandbox(env, 'CYBER_SOURCE_SANDBOX'),
       baseUrl: envFirst(env, 'CYBER_SOURCE_BASE_URL'),
     });
   }
@@ -107,12 +94,12 @@ export interface CyberSourcePaymentData {
   returnUrl?: string | undefined;
   /** The page shown on cancel (`override_custom_cancel_page`), at most 255 characters. */
   cancelUrl?: string | undefined;
-  /** An ISO 4217 code (default `MMK`). */
-  currency?: string | undefined;
-  /** What to do with the card (default `sale`). */
-  transactionType?: CyberSourceTransactionType | undefined;
-  /** The hosted page language, e.g. `en-us` (the default). */
-  locale?: string | undefined;
+  /** An ISO 4217 code, e.g. `MMK`. */
+  currency: string;
+  /** What to do with the card, e.g. `sale`. */
+  transactionType: CyberSourceTransactionType;
+  /** The hosted page language, e.g. `en-us`. */
+  locale: string;
 }
 
 const SIGNED_FIELDS = [
@@ -176,23 +163,16 @@ export class CyberSource {
       .string('cancelUrl', data.cancelUrl)
       .url('cancelUrl', data.cancelUrl)
       .max('cancelUrl', data.cancelUrl, 255)
-      .pattern(
-        'currency',
-        String(data.currency || 'MMK'),
-        /^[A-Z]{3}$/,
-        'a three letter ISO 4217 code',
-      )
-      .pattern(
-        'locale',
-        String(data.locale || 'en-us'),
-        /^[a-z]{2}-[a-z]{2}$/,
-        'a locale code such as en-us',
-      )
+      .required('currency', data.currency)
+      .pattern('currency', data.currency, /^[A-Z]{3}$/, 'a three letter ISO 4217 code')
+      .required('transactionType', data.transactionType)
       .when(
-        !TRANSACTION_TYPES.includes(String(data.transactionType || 'sale')),
+        !TRANSACTION_TYPES.includes(String(data.transactionType)),
         'transactionType',
         'The transactionType field is not a supported transaction type.',
       )
+      .required('locale', data.locale)
+      .pattern('locale', data.locale, /^[a-z]{2}-[a-z]{2}$/, 'a locale code such as en-us')
       .validate();
   }
 
@@ -209,11 +189,11 @@ export class CyberSource {
       transaction_uuid: randomHex(),
       signed_field_names: SIGNED_FIELDS.join(','),
       signed_date_time: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-      locale: data.locale || 'en-us',
-      transaction_type: data.transactionType || 'sale',
+      locale: data.locale,
+      transaction_type: data.transactionType,
       reference_number: data.orderId,
       amount: String(toAmount(data.amount)),
-      currency: data.currency || 'MMK',
+      currency: data.currency,
       override_custom_receipt_page: data.returnUrl ?? '',
       override_backoffice_post_url: data.callbackUrl,
       override_custom_cancel_page: data.cancelUrl ?? '',

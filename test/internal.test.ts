@@ -1,14 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { decodeBase64, queryEscape, safeEqual } from '../src/core/crypto.js';
-import {
-  envFirst,
-  envInt,
-  envSandbox,
-  parseSandbox,
-  requireSetting,
-  trimUrl,
-} from '../src/core/env.js';
+import { envFirst, requireSeconds, requireSetting, trimUrl } from '../src/core/env.js';
 import { JsonNumber, parseJson, parseJsonObject, toPlain } from '../src/core/json.js';
 import { Validator } from '../src/core/validate.js';
 import { get, isNested, object, optional, scalarString, trimmed } from '../src/core/values.js';
@@ -273,36 +266,26 @@ describe('environment', () => {
     expect(envFirst(env)).toBe('');
   });
 
-  it.each([
-    ['', true],
-    ['  ', true],
-    ['true', true],
-    ['TRUE', true],
-    ['1', true],
-    ['yes', true],
-    ['garbage', true],
-    ['false', false],
-    ['FALSE', false],
-    ['0', false],
-    ['f', false],
-    ['no', false],
-    ['NO', false],
-    ['off', false],
-    [' off ', false],
-  ])('treats *_SANDBOX=%j as sandbox=%s', (value, sandbox) => {
-    expect(envSandbox({ GATEWAY_SANDBOX: value }, 'GATEWAY_SANDBOX')).toBe(sandbox);
-  });
-
-  it('defaults to sandbox when the variable is unset', () => {
-    expect(envSandbox({}, 'GATEWAY_SANDBOX')).toBe(true);
-  });
-
-  it('reads integers', () => {
-    const env = { TIMEOUT: ' 30 ', BAD: 'thirty', NEG: '-5' };
-    expect(envInt(env, 'TIMEOUT')).toBe(30);
-    expect(envInt(env, 'NEG')).toBe(-5);
-    expect(envInt(env, 'BAD')).toBeUndefined();
-    expect(envInt(env, 'MISSING')).toBeUndefined();
+  it('reads a required whole number of seconds', () => {
+    expect(requireSeconds('wave_money', 'time_to_live_in_seconds', 300)).toBe(300);
+    expect(requireSeconds('wave_money', 'time_to_live_in_seconds', ' +30 ')).toBe(30);
+    for (const value of [undefined, null, '', '   ']) {
+      expect(caught(() => requireSeconds('wave_money', 'ttl', value))).toMatchObject({
+        gateway: 'wave_money',
+        key: 'ttl',
+        message: 'The wave_money configuration is missing [ttl].',
+      });
+    }
+    for (const value of [0, -5, 1.5, Number.NaN, '0', '-5', 'thirty', '1.5', true, {}, '1e3']) {
+      expect(caught(() => requireSeconds('wave_money', 'ttl', value))).toMatchObject({
+        gateway: 'wave_money',
+        key: 'ttl',
+        message: 'The wave_money configuration [ttl] must be a whole number greater than 0.',
+      });
+    }
+    expect(caught(() => requireSeconds('kbz_pay', 'ttl', '99999999999999999999'))).toBeInstanceOf(
+      ConfigurationError,
+    );
   });
 
   it('names a missing setting and trims URLs', () => {
@@ -353,15 +336,6 @@ describe('crypto helpers', () => {
 });
 
 describe('parity helpers', () => {
-  it('parses a sandbox setting like a *_SANDBOX variable', () => {
-    expect(parseSandbox(undefined)).toBe(true);
-    expect(parseSandbox(null)).toBe(true);
-    expect(parseSandbox(true)).toBe(true);
-    expect(parseSandbox(false)).toBe(false);
-    expect(parseSandbox(' OFF ')).toBe(false);
-    expect(parseSandbox('maybe')).toBe(true);
-  });
-
   it('treats only objects and arrays as nested', () => {
     expect(isNested({})).toBe(true);
     expect(isNested([])).toBe(true);

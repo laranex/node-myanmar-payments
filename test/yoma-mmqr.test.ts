@@ -32,6 +32,8 @@ const options: YomaMmqrConfigOptions = {
   clientId: 'client',
   clientSecret: 'secret',
   webhookHashKey: 'hash-key',
+  apiVersion: 'v1rc',
+  timeoutSeconds: 30,
   baseUrl: 'https://yoma.test',
 };
 
@@ -390,19 +392,25 @@ describe('YomaMmqr', () => {
 });
 
 describe('YomaMmqrConfig', () => {
-  it('defaults to the sandbox and the v1rc API', () => {
+  it('defaults to production and requires every setting', () => {
     const { baseUrl: _baseUrl, ...rest } = options;
     expect(new YomaMmqrConfig(rest)).toMatchObject({
-      baseUrl: YomaMmqrConfig.SANDBOX_URL,
+      baseUrl: YomaMmqrConfig.PRODUCTION_URL,
       apiVersion: 'v1rc',
+      timeoutSeconds: 30,
       webhookSecret: undefined,
     });
-    expect(new YomaMmqrConfig({ ...rest, sandbox: false }).baseUrl).toBe(
-      'https://paymenthubapi.yomabank.com',
-    );
     expect(caught(() => new YomaMmqrConfig({ ...rest, webhookHashKey: '' }))).toMatchObject({
       gateway: 'yoma_mmqr',
       key: 'webhook_hashkey',
+    });
+    expect(caught(() => new YomaMmqrConfig({ ...rest, apiVersion: ' ' }))).toMatchObject({
+      gateway: 'yoma_mmqr',
+      key: 'api_version',
+    });
+    expect(caught(() => new YomaMmqrConfig({ ...rest, timeoutSeconds: -1 }))).toMatchObject({
+      gateway: 'yoma_mmqr',
+      key: 'timeout_in_seconds',
     });
   });
 
@@ -413,14 +421,14 @@ describe('YomaMmqrConfig', () => {
       YOMA_MMQR_CLIENT_SECRET: 'S',
       YOMA_MMQR_WEBHOOK_HASHKEY: 'H',
       YOMA_MMQR_WEBHOOK_SECRET: 'W',
-      YOMA_MMQR_SANDBOX: 'false',
+      MYANMAR_PAYMENTS_HTTP_TIMEOUT: '45',
       YOMA_MMQR_BASE_URL: 'https://hub.test/',
       YOMA_MMQR_API_VERSION: 'v2',
     };
     expect(YomaMmqrConfig.fromEnv(env)).toMatchObject({
       merchantId: 'M',
       webhookSecret: 'W',
-      sandbox: false,
+      timeoutSeconds: 45,
       baseUrl: 'https://hub.test',
       apiVersion: 'v2',
     });

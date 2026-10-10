@@ -33,24 +33,21 @@ export type FetchFunction = (input: string, init: RequestInit) => Promise<Respon
 export interface FetchHttpClientOptions {
   /** The `fetch` to call; defaults to the global `fetch`. */
   fetch?: FetchFunction | undefined;
-  /** Milliseconds before a request is aborted; defaults to 30000. `0` disables the timeout. */
-  timeoutMs?: number | undefined;
+  /** Milliseconds before a request is aborted. `0` disables the timeout. */
+  timeoutMs: number;
 }
 
-/** The default request timeout: 30 seconds. */
-export const DEFAULT_TIMEOUT_MS = 30_000;
-
 /**
- * The default {@link HttpClient}: the global `fetch` (or the one you pass) with a 30 second
- * timeout.
+ * The default {@link HttpClient}: the global `fetch` (or the one you pass) with the timeout you
+ * give it. Gateways build one with their `timeoutSeconds` setting when you pass no client.
  */
 export class FetchHttpClient implements HttpClient {
   private readonly fetchFunction: FetchFunction | undefined;
   private readonly timeoutMs: number;
 
-  constructor(options: FetchHttpClientOptions = {}) {
+  constructor(options: FetchHttpClientOptions) {
     this.fetchFunction = options.fetch;
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.timeoutMs = options.timeoutMs;
   }
 
   async send(request: HttpRequest): Promise<HttpResponse> {
@@ -79,12 +76,13 @@ export class FetchHttpClient implements HttpClient {
 
 /** Options every gateway that calls an API accepts. */
 export interface GatewayOptions {
-  /** Sends the requests. Takes precedence over `fetch` and `timeoutMs`. */
+  /**
+   * Sends the requests, with its own timeout. Takes precedence over `fetch`. Without one, the
+   * gateway uses a {@link FetchHttpClient} with the config's `timeoutSeconds`.
+   */
   httpClient?: HttpClient | undefined;
   /** The `fetch` the default client calls, e.g. a mocked one in tests. */
   fetch?: FetchFunction | undefined;
-  /** Milliseconds before the default client aborts a request; defaults to 30000. */
-  timeoutMs?: number | undefined;
 }
 
 /** Per-call options of every network method. */
@@ -94,10 +92,10 @@ export interface RequestOptions {
 }
 
 /** @internal */
-export function httpClientFrom(options: GatewayOptions = {}): HttpClient {
+export function httpClientFrom(options: GatewayOptions, timeoutSeconds: number): HttpClient {
   return (
     options.httpClient ??
-    new FetchHttpClient({ fetch: options.fetch, timeoutMs: options.timeoutMs })
+    new FetchHttpClient({ fetch: options.fetch, timeoutMs: timeoutSeconds * 1000 })
   );
 }
 

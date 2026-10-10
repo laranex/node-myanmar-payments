@@ -17,10 +17,23 @@ import * as api from '../src/index.js';
 import { caught, FakeFetch } from './helpers.js';
 
 const full = {
-  kbzPay: { appId: 'a', appKey: 'b', merchantCode: 'c' },
-  waveMoney: { merchantId: 'm', secretKey: 's', merchantName: 'Shop' },
-  ayaPay: { appKey: 'k', appSecret: 's' },
-  yomaMmqr: { merchantId: 'm', clientId: 'c', clientSecret: 's', webhookHashKey: 'h' },
+  kbzPay: { appId: 'a', appKey: 'b', merchantCode: 'c', timeoutSeconds: 30 },
+  waveMoney: {
+    merchantId: 'm',
+    secretKey: 's',
+    merchantName: 'Shop',
+    timeToLiveSeconds: 300,
+    timeoutSeconds: 30,
+  },
+  ayaPay: { appKey: 'k', appSecret: 's', timeoutSeconds: 30 },
+  yomaMmqr: {
+    merchantId: 'm',
+    clientId: 'c',
+    clientSecret: 's',
+    webhookHashKey: 'h',
+    apiVersion: 'v1rc',
+    timeoutSeconds: 30,
+  },
   cyberSource: { profileId: 'p', accessKey: 'a', secretKey: 's' },
 };
 
@@ -71,13 +84,16 @@ describe('MyanmarPayments', () => {
       KBZ_PAY_MERCHANT_CODE: '1',
       WAVE_MONEY_MERCHANT_ID: 'm',
       WAVE_MONEY_SECRET_KEY: 's',
-      APP_NAME: 'Shop',
+      WAVE_MONEY_MERCHANT_NAME: 'Shop',
+      WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS: '300',
+      MYANMAR_PAYMENTS_HTTP_TIMEOUT: '30',
       AYA_PGW_APP_KEY: 'k',
       AYA_PGW_APP_SECRET: 's',
       YOMA_MMQR_MERCHANT_ID: 'm',
       YOMA_MMQR_CLIENT_ID: 'c',
       YOMA_MMQR_CLIENT_SECRET: 's',
       YOMA_MMQR_WEBHOOK_HASHKEY: 'h',
+      YOMA_MMQR_API_VERSION: 'v1rc',
     });
     expect(payments.kbzPay().config.appId).toBe('kp');
     expect(payments.waveMoney().config.merchantName).toBe('Shop');

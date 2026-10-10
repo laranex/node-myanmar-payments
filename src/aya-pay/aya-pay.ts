@@ -10,9 +10,9 @@ import { decodeBase64, hmacSha256Hex, safeEqual } from '../core/crypto.js';
 import {
   defaultEnv,
   envFirst,
-  envSandbox,
-  parseSandbox,
+  HTTP_TIMEOUT_VARIABLE,
   optionalSetting,
+  requireSeconds,
   requireSetting,
   trimUrl,
   type EnvSource,
@@ -42,47 +42,44 @@ export interface AyaPayConfigOptions {
   /** The secret that signs requests and verifies callbacks. */
   appSecret: string;
   /**
-   * Use the UAT environment (default `true`).
-   * Text is read like a `*_SANDBOX` variable: `false`, `0`, `f`, `no` or `off` select production.
+   * Seconds before the default HTTP client gives up on a request, a whole number greater than 0
+   * (or its text). A client you pass keeps its own timeout.
    */
-  sandbox?: boolean | string | undefined;
-  /** Overrides the gateway base URL. */
+  timeoutSeconds: number | string;
+  /** Overrides the gateway base URL, e.g. to point at UAT. */
   baseUrl?: string | undefined;
 }
 
 /**
- * AYA Payment Gateway (APG) credentials and endpoints. A missing credential throws a
- * `ConfigurationError`.
+ * AYA Payment Gateway (APG) credentials and endpoints. A missing setting throws a
+ * `ConfigurationError`. The URL defaults to production.
  */
 export class AyaPayConfig {
-  static readonly SANDBOX_URL = 'https://uat-pgw.ayainnovation.com';
   static readonly PRODUCTION_URL = 'https://pgw.ayainnovation.com';
 
   readonly appKey: string;
   readonly appSecret: string;
-  readonly sandbox: boolean;
+  /** Seconds before the default HTTP client gives up on a request. */
+  readonly timeoutSeconds: number;
   /** The base URL in use. */
   readonly baseUrl: string;
 
   constructor(options: AyaPayConfigOptions) {
     this.appKey = requireSetting('aya_pay', 'app_key', options.appKey);
     this.appSecret = requireSetting('aya_pay', 'app_secret', options.appSecret);
-    this.sandbox = parseSandbox(options.sandbox);
-    this.baseUrl = trimUrl(
-      optionalSetting(options.baseUrl) ??
-        (this.sandbox ? AyaPayConfig.SANDBOX_URL : AyaPayConfig.PRODUCTION_URL),
-    );
+    this.timeoutSeconds = requireSeconds('aya_pay', 'timeout_in_seconds', options.timeoutSeconds);
+    this.baseUrl = trimUrl(optionalSetting(options.baseUrl) ?? AyaPayConfig.PRODUCTION_URL);
   }
 
   /**
-   * Reads `AYA_PAY_APP_KEY`, `AYA_PAY_APP_SECRET`, `AYA_PAY_SANDBOX` and `AYA_PAY_BASE_URL`, falling
-   * back to the `AYA_PGW_*` names.
+   * Reads `AYA_PAY_APP_KEY`, `AYA_PAY_APP_SECRET`, `MYANMAR_PAYMENTS_HTTP_TIMEOUT` and
+   * `AYA_PAY_BASE_URL`, falling back to the `AYA_PGW_*` names.
    */
   static fromEnv(env: EnvSource = defaultEnv()): AyaPayConfig {
     return new AyaPayConfig({
       appKey: envFirst(env, 'AYA_PAY_APP_KEY', 'AYA_PGW_APP_KEY'),
       appSecret: envFirst(env, 'AYA_PAY_APP_SECRET', 'AYA_PGW_APP_SECRET'),
-      sandbox: envSandbox(env, 'AYA_PAY_SANDBOX'),
+      timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
       baseUrl: envFirst(env, 'AYA_PAY_BASE_URL', 'AYA_PGW_BASE_URL'),
     });
   }
@@ -205,7 +202,7 @@ export class AyaPay {
 
   constructor(config: AyaPayConfig | AyaPayConfigOptions, options: GatewayOptions = {}) {
     this.config = config instanceof AyaPayConfig ? config : new AyaPayConfig(config);
-    this.transport = new Transport(httpClientFrom(options));
+    this.transport = new Transport(httpClientFrom(options, this.config.timeoutSeconds));
   }
 
   /** A gateway configured from the `AYA_PAY_*` (or `AYA_PGW_*`) environment variables. */

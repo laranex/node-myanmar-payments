@@ -51,6 +51,9 @@ const base: CyberSourcePaymentData = {
   orderId: 'ORDER-1',
   amount: Amount.kyat(1000),
   callbackUrl: 'https://shop.test/cb',
+  currency: 'MMK',
+  transactionType: 'sale',
+  locale: 'en-us',
 };
 
 describe('CyberSource', () => {
@@ -60,10 +63,12 @@ describe('CyberSource', () => {
       amount: Amount.kyat(1000),
       callbackUrl: 'https://shop.test/cs/callback',
       returnUrl: 'https://shop.test/done',
+      currency: 'MMK',
       transactionType: CyberSourceTransactionType.Authorization,
+      locale: 'en-us',
     });
     const fields = payment.values();
-    expect(payment.action).toBe(`${CyberSourceConfig.SANDBOX_URL}/pay`);
+    expect(payment.action).toBe(`${CyberSourceConfig.PRODUCTION_URL}/pay`);
     expect(payment.enctype).toBe('application/x-www-form-urlencoded');
     expect(fields).toMatchObject({
       access_key: 'access',
@@ -235,6 +240,9 @@ describe('CyberSource', () => {
     ['missing amount', { amount: undefined as never }, 'amount'],
     ['lowercase currency', { currency: 'usd' }, 'currency'],
     ['plain en locale', { locale: 'en' }, 'locale'],
+    ['missing currency', { currency: '' }, 'currency'],
+    ['missing locale', { locale: undefined as never }, 'locale'],
+    ['missing type', { transactionType: undefined as never }, 'transactionType'],
     ['order id over 50', { orderId: 'A'.repeat(51) }, 'orderId'],
     ['unknown type', { transactionType: 'refund' as never }, 'transactionType'],
   ])('enforces the Secure Acceptance field rules: %s', (_name, change, field) => {
@@ -244,12 +252,25 @@ describe('CyberSource', () => {
   });
 });
 
+describe('CyberSource required payment fields', () => {
+  it('has no defaults for currency, transaction type and locale', () => {
+    const { currency: _c, transactionType: _t, locale: _l, ...rest } = base;
+    const error = caught(() =>
+      CyberSource.validate(rest as CyberSourcePaymentData),
+    ) as InvalidPaymentDataError;
+    expect(error.errors).toEqual({
+      currency: 'The currency field is required.',
+      transactionType: 'The transactionType field is required.',
+      locale: 'The locale field is required.',
+    });
+  });
+});
+
 describe('CyberSourceConfig', () => {
-  it('selects endpoints and names a missing key', () => {
-    expect(
-      new CyberSourceConfig({ profileId: 'p', accessKey: 'a', secretKey: 's', sandbox: false })
-        .baseUrl,
-    ).toBe(CyberSourceConfig.PRODUCTION_URL);
+  it('defaults to production and names a missing key', () => {
+    expect(new CyberSourceConfig({ profileId: 'p', accessKey: 'a', secretKey: 's' }).baseUrl).toBe(
+      CyberSourceConfig.PRODUCTION_URL,
+    );
     expect(
       caught(() => new CyberSourceConfig({ profileId: '', accessKey: 'a', secretKey: 's' })),
     ).toMatchObject({
@@ -267,7 +288,6 @@ describe('CyberSourceConfig', () => {
     };
     expect(CyberSourceConfig.fromEnv(env)).toMatchObject({
       profileId: 'p',
-      sandbox: true,
       baseUrl: 'https://cs.test',
     });
     expect(CyberSource.fromEnv(env).initiate(base).action).toBe('https://cs.test/pay');
