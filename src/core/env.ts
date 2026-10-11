@@ -39,6 +39,22 @@ export function requireSeconds(gateway: string, key: string, value: unknown): nu
 /** The variable holding the HTTP timeout of every gateway that calls an API. @internal */
 export const HTTP_TIMEOUT_VARIABLE = 'MYANMAR_PAYMENTS_HTTP_TIMEOUT';
 
+/** Seconds before the default HTTP client gives up on a request when no timeout is configured. */
+export const DEFAULT_TIMEOUT_SECONDS = 30;
+
+/**
+ * The HTTP timeout in seconds: {@link DEFAULT_TIMEOUT_SECONDS} when unset or blank, otherwise a
+ * whole number greater than 0 (or its text), or the invalid {@link ConfigurationError}.
+ *
+ * @internal
+ */
+export function resolveTimeout(gateway: string, value: unknown): number {
+  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+    return DEFAULT_TIMEOUT_SECONDS;
+  }
+  return requireSeconds(gateway, 'timeout_in_seconds', value);
+}
+
 /** The trimmed value, or throws a {@link ConfigurationError} naming `key`. @internal */
 export function requireSetting(gateway: string, key: string, value: unknown): string {
   if (typeof value !== 'string' || value.trim() === '') {

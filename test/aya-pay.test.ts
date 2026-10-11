@@ -9,6 +9,7 @@ import {
   AyaPayMethod,
   AyaPayService,
   CallbackRequest,
+  DEFAULT_TIMEOUT_SECONDS,
   InvalidPaymentDataError,
   SignatureVerificationError,
   type AyaPayPaymentData,
@@ -419,9 +420,12 @@ describe('AyaPayConfig', () => {
       gateway: 'aya_pay',
       key: 'app_secret',
     });
-    expect(
-      caught(() => new AyaPayConfig({ appKey: 'k', appSecret: 's', timeoutSeconds: '' })),
-    ).toMatchObject({ gateway: 'aya_pay', key: 'timeout_in_seconds' });
+    for (const timeoutSeconds of [undefined, null, '', '  ']) {
+      expect(new AyaPayConfig({ appKey: 'k', appSecret: 's', timeoutSeconds }).timeoutSeconds).toBe(
+        DEFAULT_TIMEOUT_SECONDS,
+      );
+    }
+    expect(new AyaPayConfig({ appKey: 'k', appSecret: 's' }).timeoutSeconds).toBe(30);
     expect(
       (caught(() => new AyaPayConfig({ appKey: 'k', appSecret: 's', timeoutSeconds: 0 })) as Error)
         .message,

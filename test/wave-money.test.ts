@@ -4,6 +4,7 @@ import {
   Amount,
   ApiError,
   CallbackRequest,
+  DEFAULT_TIMEOUT_SECONDS,
   InvalidPaymentDataError,
   SignatureVerificationError,
   WaveMoney,
@@ -339,18 +340,25 @@ describe('WaveMoneyConfig', () => {
   });
 
   it('requires the time to live and the timeout as whole numbers of seconds', () => {
+    for (const value of [undefined, '', '  ']) {
+      expect(
+        caught(
+          () =>
+            new WaveMoneyConfig({
+              ...settings,
+              timeToLiveSeconds: value,
+            } as unknown as typeof settings),
+        ),
+      ).toMatchObject({
+        key: 'time_to_live_in_seconds',
+        message: 'The wave_money configuration is missing [time_to_live_in_seconds].',
+      });
+      expect(new WaveMoneyConfig({ ...settings, timeoutSeconds: value }).timeoutSeconds).toBe(
+        DEFAULT_TIMEOUT_SECONDS,
+      );
+    }
     for (const key of ['timeToLiveSeconds', 'timeoutSeconds'] as const) {
       const name = key === 'timeToLiveSeconds' ? 'time_to_live_in_seconds' : 'timeout_in_seconds';
-      for (const value of [undefined, '', '  ']) {
-        expect(
-          caught(
-            () => new WaveMoneyConfig({ ...settings, [key]: value } as unknown as typeof settings),
-          ),
-        ).toMatchObject({
-          key: name,
-          message: `The wave_money configuration is missing [${name}].`,
-        });
-      }
       for (const value of [0, -1, 2.5, 'five', '-3']) {
         expect(
           caught(

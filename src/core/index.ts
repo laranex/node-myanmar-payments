@@ -16,7 +16,7 @@ export {
   type ServerResponseLike,
   type WebRequestLike,
 } from './callback.js';
-export type { EnvSource } from './env.js';
+export { DEFAULT_TIMEOUT_SECONDS, type EnvSource } from './env.js';
 export {
   ApiError,
   ConfigurationError,

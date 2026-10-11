@@ -4,6 +4,7 @@ import {
   Amount,
   ApiError,
   CallbackRequest,
+  DEFAULT_TIMEOUT_SECONDS,
   InvalidPaymentDataError,
   MemoryTokenCache,
   SignatureVerificationError,
@@ -412,6 +413,9 @@ describe('YomaMmqrConfig', () => {
       gateway: 'yoma_mmqr',
       key: 'timeout_in_seconds',
     });
+    const { timeoutSeconds: _timeout, ...noTimeout } = rest;
+    expect(new YomaMmqrConfig(noTimeout).timeoutSeconds).toBe(DEFAULT_TIMEOUT_SECONDS);
+    expect(new YomaMmqrConfig({ ...rest, timeoutSeconds: ' ' }).timeoutSeconds).toBe(30);
   });
 
   it('reads the environment', () => {

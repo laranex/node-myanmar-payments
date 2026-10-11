@@ -8,7 +8,9 @@ import '@laranex/myanmar-payments/yoma-mmqr';
 import '@laranex/myanmar-payments/cyber-source';
 
 assert.strictEqual(KbzPay, root.KbzPay);
-const kbz = new KbzPay({ appId: 'a', appKey: 'k', merchantCode: 'm', timeoutSeconds: 30 });
+const kbz = new KbzPay({ appId: 'a', appKey: 'k', merchantCode: 'm' });
+assert.strictEqual(kbz.config.timeoutSeconds, root.DEFAULT_TIMEOUT_SECONDS);
+assert.strictEqual(root.DEFAULT_TIMEOUT_SECONDS, 30);
 assert.match(kbz.signer.sign({ a: '1' }), /^[0-9A-F]{64}$/);
 assert.strictEqual(root.Amount.parse('1000.50').toString(), '1000.50');
 console.log('ES modules OK');

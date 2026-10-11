@@ -12,8 +12,8 @@ import {
   envFirst,
   HTTP_TIMEOUT_VARIABLE,
   optionalSetting,
-  requireSeconds,
   requireSetting,
+  resolveTimeout,
   trimUrl,
   type EnvSource,
 } from '../core/env.js';
@@ -47,9 +47,10 @@ export interface YomaMmqrConfigOptions {
   apiVersion: string;
   /**
    * Seconds before the default HTTP client gives up on a request, a whole number greater than 0
-   * (or its text). A client you pass keeps its own timeout.
+   * (or its text). Defaults to 30 (`DEFAULT_TIMEOUT_SECONDS`) when unset or blank. A
+   * client you pass keeps its own timeout.
    */
-  timeoutSeconds: number | string;
+  timeoutSeconds?: number | string | null | undefined;
   /** Overrides the API base URL, e.g. to point at UAT. */
   baseUrl?: string | undefined;
 }
@@ -79,7 +80,7 @@ export class YomaMmqrConfig {
     this.clientSecret = requireSetting('yoma_mmqr', 'client_secret', options.clientSecret);
     this.webhookHashKey = requireSetting('yoma_mmqr', 'webhook_hashkey', options.webhookHashKey);
     this.apiVersion = requireSetting('yoma_mmqr', 'api_version', options.apiVersion);
-    this.timeoutSeconds = requireSeconds('yoma_mmqr', 'timeout_in_seconds', options.timeoutSeconds);
+    this.timeoutSeconds = resolveTimeout('yoma_mmqr', options.timeoutSeconds);
     this.webhookSecret = optionalSetting(options.webhookSecret);
     this.baseUrl = trimUrl(optionalSetting(options.baseUrl) ?? YomaMmqrConfig.PRODUCTION_URL);
   }

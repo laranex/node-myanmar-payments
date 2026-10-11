@@ -23,7 +23,7 @@ Requires Node.js 20+ and has no runtime dependencies (global `fetch`, `node:cryp
 
 ## Configure
 
-`MyanmarPayments.fromEnv(process.env)` reads `KBZ_PAY_*`, `WAVE_MONEY_*`, `AYA_PAY_*` (or `AYA_PGW_*`), `YOMA_MMQR_*` and `CYBER_SOURCE_*` plus `MYANMAR_PAYMENTS_HTTP_TIMEOUT` (the same variables as the PHP, Go and Python SDKs). Every gateway defaults to its production URLs; to test against UAT, set the URL overrides (`KBZ_PAY_BASE_URL`, `KBZ_PAY_PWA_BASE_REDIRECT_URL`, `WAVE_MONEY_BASE_URL`, `WAVE_MONEY_AUTHENTICATE_URL`, `AYA_PAY_BASE_URL`, `YOMA_MMQR_BASE_URL`, `CYBER_SOURCE_BASE_URL`) to the gateway's UAT URLs. Every other setting is required, with no defaults: credentials, `timeoutSeconds` (seconds, for every gateway except CyberSource), Wave's `merchantName` and `timeToLiveSeconds`, and Yoma's `apiVersion` (e.g. `v1rc`).
+`MyanmarPayments.fromEnv(process.env)` reads `KBZ_PAY_*`, `WAVE_MONEY_*`, `AYA_PAY_*` (or `AYA_PGW_*`), `YOMA_MMQR_*` and `CYBER_SOURCE_*` plus `MYANMAR_PAYMENTS_HTTP_TIMEOUT` (the same variables as the PHP, Go and Python SDKs). Every gateway defaults to its production URLs; to test against UAT, set the URL overrides (`KBZ_PAY_BASE_URL`, `KBZ_PAY_PWA_BASE_REDIRECT_URL`, `WAVE_MONEY_BASE_URL`, `WAVE_MONEY_AUTHENTICATE_URL`, `AYA_PAY_BASE_URL`, `YOMA_MMQR_BASE_URL`, `CYBER_SOURCE_BASE_URL`) to the gateway's UAT URLs. The HTTP timeout `timeoutSeconds` / `MYANMAR_PAYMENTS_HTTP_TIMEOUT` (seconds, for every gateway except CyberSource) is optional and defaults to 30 (`DEFAULT_TIMEOUT_SECONDS`); an explicit value must be a whole number greater than 0. Every other setting is required, with no defaults: credentials, Wave's `merchantName` and `timeToLiveSeconds`, and Yoma's `apiVersion` (e.g. `v1rc`).
 
 ```ts
 import { MyanmarPayments } from '@laranex/myanmar-payments';
@@ -32,8 +32,8 @@ const payments = MyanmarPayments.fromEnv(process.env); // create once, share acr
 const kbz = payments.kbzPay(); // also waveMoney(), ayaPay(), yomaMmqr(), cyberSource()
 ```
 
-- Or build one gateway: `new KbzPay(new KbzPayConfig({ appId, appKey, merchantCode, timeoutSeconds: 30 }))`, `KbzPay.fromEnv()` or `new KbzPay(KbzPayConfig.fromEnv(process.env))`.
-- Or pass the settings directly: gateways and `new MyanmarPayments({ kbzPay: { appId, appKey, merchantCode, timeoutSeconds } })` take config objects or plain option objects; whole-number settings also take text such as `'30'`.
+- Or build one gateway: `new KbzPay(new KbzPayConfig({ appId, appKey, merchantCode }))`, `KbzPay.fromEnv()` or `new KbzPay(KbzPayConfig.fromEnv(process.env))`.
+- Or pass the settings directly: gateways and `new MyanmarPayments({ kbzPay: { appId, appKey, merchantCode } })` take config objects or plain option objects; whole-number settings also take text such as `'30'`.
 - Options (second argument): `{ httpClient, fetch }`. Without `httpClient`, the gateway uses `fetch` with the config's `timeoutSeconds`; a client you pass keeps its own timeout. Yoma and the facade also take `tokenCache` (any `TokenCache`, default `MemoryTokenCache`; back it with Redis when you run several processes).
 - A missing setting throws `ConfigurationError` (`gateway`, `key`); a time setting that is not a whole number greater than 0 throws it too.
 

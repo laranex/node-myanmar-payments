@@ -12,8 +12,8 @@ import {
   envFirst,
   HTTP_TIMEOUT_VARIABLE,
   optionalSetting,
-  requireSeconds,
   requireSetting,
+  resolveTimeout,
   trimUrl,
   type EnvSource,
 } from '../core/env.js';
@@ -43,9 +43,10 @@ export interface AyaPayConfigOptions {
   appSecret: string;
   /**
    * Seconds before the default HTTP client gives up on a request, a whole number greater than 0
-   * (or its text). A client you pass keeps its own timeout.
+   * (or its text). Defaults to 30 (`DEFAULT_TIMEOUT_SECONDS`) when unset or blank. A
+   * client you pass keeps its own timeout.
    */
-  timeoutSeconds: number | string;
+  timeoutSeconds?: number | string | null | undefined;
   /** Overrides the gateway base URL, e.g. to point at UAT. */
   baseUrl?: string | undefined;
 }
@@ -67,7 +68,7 @@ export class AyaPayConfig {
   constructor(options: AyaPayConfigOptions) {
     this.appKey = requireSetting('aya_pay', 'app_key', options.appKey);
     this.appSecret = requireSetting('aya_pay', 'app_secret', options.appSecret);
-    this.timeoutSeconds = requireSeconds('aya_pay', 'timeout_in_seconds', options.timeoutSeconds);
+    this.timeoutSeconds = resolveTimeout('aya_pay', options.timeoutSeconds);
     this.baseUrl = trimUrl(optionalSetting(options.baseUrl) ?? AyaPayConfig.PRODUCTION_URL);
   }
 

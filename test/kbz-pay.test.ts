@@ -5,6 +5,7 @@ import {
   ApiError,
   CallbackRequest,
   ConfigurationError,
+  DEFAULT_TIMEOUT_SECONDS,
   InvalidPaymentDataError,
   KbzPay,
   KbzPayConfig,
@@ -501,14 +502,20 @@ describe('KbzPayConfig', () => {
     expect(() => new KbzPay({ ...config, appId: '' })).toThrow(ConfigurationError);
   });
 
-  it('requires a timeout of a whole number of seconds', () => {
+  it('defaults the timeout to 30 seconds and validates an explicit one', () => {
     const { timeoutSeconds: _timeout, ...noTimeout } = config;
-    expect(
-      caught(() => new KbzPayConfig(noTimeout as unknown as KbzPayConfigOptions)),
-    ).toMatchObject({
-      key: 'timeout_in_seconds',
-      message: 'The kbz_pay configuration is missing [timeout_in_seconds].',
-    });
+    expect(DEFAULT_TIMEOUT_SECONDS).toBe(30);
+    expect(new KbzPayConfig(noTimeout).timeoutSeconds).toBe(DEFAULT_TIMEOUT_SECONDS);
+    for (const timeoutSeconds of [undefined, null, '', '   ']) {
+      expect(new KbzPayConfig({ ...config, timeoutSeconds }).timeoutSeconds).toBe(30);
+    }
+    const { MYANMAR_PAYMENTS_HTTP_TIMEOUT: _variable, ...envWithoutTimeout } = {
+      KBZ_PAY_APP_ID: 'kp1',
+      KBZ_PAY_APP_KEY: 'key',
+      KBZ_PAY_MERCHANT_CODE: '200',
+      MYANMAR_PAYMENTS_HTTP_TIMEOUT: '20',
+    };
+    expect(KbzPayConfig.fromEnv(envWithoutTimeout).timeoutSeconds).toBe(30);
     for (const timeoutSeconds of [0, -5, 1.5, 'ten', '2.5', '0', true]) {
       expect(
         caught(

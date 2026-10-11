@@ -12,8 +12,8 @@ import {
   envFirst,
   HTTP_TIMEOUT_VARIABLE,
   optionalSetting,
-  requireSeconds,
   requireSetting,
+  resolveTimeout,
   trimUrl,
   type EnvSource,
 } from '../core/env.js';
@@ -41,9 +41,10 @@ export interface KbzPayConfigOptions {
   merchantCode: string;
   /**
    * Seconds before the default HTTP client gives up on a request, a whole number greater than 0
-   * (or its text). A client you pass keeps its own timeout.
+   * (or its text). Defaults to 30 (`DEFAULT_TIMEOUT_SECONDS`) when unset or blank. A
+   * client you pass keeps its own timeout.
    */
-  timeoutSeconds: number | string;
+  timeoutSeconds?: number | string | null | undefined;
   /** Overrides the API base URL, e.g. to point at UAT or go through a proxy. */
   apiUrl?: string | undefined;
   /** Overrides the PWA checkout URL. A trailing `#` or `#/` is normalized to `#/`. */
@@ -72,7 +73,7 @@ export class KbzPayConfig {
     this.appId = requireSetting('kbz_pay', 'app_id', options.appId);
     this.appKey = requireSetting('kbz_pay', 'app_key', options.appKey);
     this.merchantCode = requireSetting('kbz_pay', 'merchant_code', options.merchantCode);
-    this.timeoutSeconds = requireSeconds('kbz_pay', 'timeout_in_seconds', options.timeoutSeconds);
+    this.timeoutSeconds = resolveTimeout('kbz_pay', options.timeoutSeconds);
     this.apiUrl = trimUrl(optionalSetting(options.apiUrl) ?? KbzPayConfig.PRODUCTION_API_URL);
     this.pwaUrl = `${trimUrl(optionalSetting(options.pwaUrl) ?? KbzPayConfig.PRODUCTION_PWA_URL)}/`;
   }

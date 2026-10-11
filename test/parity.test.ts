@@ -41,6 +41,7 @@ interface Vectors {
       key: string;
       message: string;
     }[];
+    default_timeout: { variable: string; values: (string | null)[]; timeout_in_seconds: number };
   };
   yoma_mmqr_token_cache_key: { base_url: string; client_id: string; key: string };
   form_html: {
@@ -214,6 +215,25 @@ describe('parity vectors', () => {
       }
       expect(error).toBeInstanceOf(ConfigurationError);
       expect(error).toMatchObject({ gateway, key, message });
+    },
+  );
+
+  it.each(vectors.config.default_timeout.values)(
+    'defaults the HTTP timeout when the variable is %j',
+    (value) => {
+      const { variable, timeout_in_seconds } = vectors.config.default_timeout;
+      const env: Record<string, string> = Object.fromEntries(
+        Object.entries(vectors.config.env).filter(([name]) => name !== variable),
+      );
+      if (value !== null) {
+        env[variable] = value;
+      }
+      for (const gateway of ['kbz_pay', 'wave_money', 'aya_pay', 'yoma_mmqr']) {
+        const build = fromEnv[gateway] as (env: Record<string, string>) => {
+          timeoutSeconds: number;
+        };
+        expect(build(env).timeoutSeconds).toBe(timeout_in_seconds);
+      }
     },
   );
 

@@ -8,6 +8,7 @@ import {
   optionalSetting,
   requireSeconds,
   requireSetting,
+  resolveTimeout,
   trimUrl,
   type EnvSource,
 } from '../core/env.js';
@@ -36,9 +37,10 @@ export interface WaveMoneyConfigOptions {
   timeToLiveSeconds: number | string;
   /**
    * Seconds before the default HTTP client gives up on a request, a whole number greater than 0
-   * (or its text). A client you pass keeps its own timeout.
+   * (or its text). Defaults to 30 (`DEFAULT_TIMEOUT_SECONDS`) when unset or blank. A
+   * client you pass keeps its own timeout.
    */
-  timeoutSeconds: number | string;
+  timeoutSeconds?: number | string | null | undefined;
   /** Overrides the API base URL, e.g. to point at UAT. */
   baseUrl?: string | undefined;
   /** Overrides the host the customer is redirected to. Wave serves it without the API port. */
@@ -74,11 +76,7 @@ export class WaveMoneyConfig {
       'time_to_live_in_seconds',
       options.timeToLiveSeconds,
     );
-    this.timeoutSeconds = requireSeconds(
-      'wave_money',
-      'timeout_in_seconds',
-      options.timeoutSeconds,
-    );
+    this.timeoutSeconds = resolveTimeout('wave_money', options.timeoutSeconds);
     this.baseUrl = trimUrl(optionalSetting(options.baseUrl) ?? WaveMoneyConfig.PRODUCTION_URL);
     this.authenticateUrl = trimUrl(
       optionalSetting(options.authenticateUrl) ?? WaveMoneyConfig.PRODUCTION_AUTHENTICATE_URL,
