@@ -19,8 +19,9 @@ import {
   YomaMmqrConfig,
   type PaymentCallback,
   type TokenCache,
+  type WaveMoneyPaymentData,
 } from '../src/index.js';
-import { FakeFetch, fixture } from './helpers.js';
+import { caught, FakeFetch, fixture } from './helpers.js';
 
 /** The cross-SDK vectors php-, go-, node- and python-myanmar-payments all ship unchanged. */
 interface Vectors {
@@ -60,6 +61,29 @@ interface Vectors {
     kbz_decimals: string;
     kbz_timeout_zero: string;
   };
+  wave_money_request_overrides: {
+    config: {
+      merchant_id: string;
+      secret_key: string;
+      merchant_name: string;
+      time_to_live_in_seconds: number;
+    };
+    data: {
+      order_id: string;
+      merchant_reference_id: string;
+      callback_url: string;
+      return_url: string;
+      description: string;
+      items: [string, number][];
+    };
+    cases: (WaveOverrides & { expected: Record<string, string> })[];
+    invalid: (WaveOverrides & { setting: 'merchant_name' | 'time_to_live_in_seconds' })[];
+  };
+}
+
+interface WaveOverrides {
+  merchant_name: string | null;
+  time_to_live_in_seconds: number | null;
 }
 
 interface CallbackCase {
@@ -326,5 +350,46 @@ describe('parity vectors', () => {
     expect(
       errorsOf(() => KbzPay.validate({ ...kbz, amount: 1000, timeoutMinutes: 0 })).timeoutMinutes,
     ).toBe(messages.kbz_timeout_zero);
+  });
+
+  it('applies per-payment Wave Money overrides like every other SDK', async () => {
+    const { config, data, cases, invalid } = vectors.wave_money_request_overrides;
+    const build = (overrides: WaveOverrides): WaveMoneyPaymentData => ({
+      orderId: data.order_id,
+      callbackUrl: data.callback_url,
+      returnUrl: data.return_url,
+      description: data.description,
+      items: data.items.map(([name, amount]) => ({ name, amount })),
+      merchantReferenceId: data.merchant_reference_id,
+      merchantName: overrides.merchant_name,
+      timeToLiveSeconds: overrides.time_to_live_in_seconds,
+    });
+
+    for (const testCase of cases) {
+      const fake = new FakeFetch({ body: { message: 'success', transaction_id: 'T1' } });
+      const gateway = new WaveMoney(
+        {
+          merchantId: config.merchant_id,
+          secretKey: config.secret_key,
+          merchantName: config.merchant_name,
+          timeToLiveSeconds: config.time_to_live_in_seconds,
+        },
+        { fetch: fake.fetch },
+      );
+
+      await gateway.initiate(build(testCase));
+
+      const form = Object.fromEntries(fake.last().form());
+      expect(form).toMatchObject(testCase.expected);
+    }
+
+    const fields = { merchant_name: 'merchantName', time_to_live_in_seconds: 'timeToLiveSeconds' };
+    for (const testCase of invalid) {
+      const error = caught(() => WaveMoney.validate(build(testCase)));
+      expect(error).toBeInstanceOf(InvalidPaymentDataError);
+      expect(Object.keys((error as InvalidPaymentDataError).errors)).toEqual([
+        fields[testCase.setting],
+      ]);
+    }
   });
 });

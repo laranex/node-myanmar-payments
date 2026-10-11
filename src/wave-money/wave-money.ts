@@ -131,6 +131,16 @@ export interface WaveMoneyPaymentData {
    * this.
    */
   merchantReferenceId?: string | undefined;
+  /**
+   * The business name shown on Wave's page for this payment. Defaults to the configured
+   * `merchantName` when unset.
+   */
+  merchantName?: string | null | undefined;
+  /**
+   * How long the customer has to pay this payment, in seconds: a whole number greater than 0.
+   * Defaults to the configured `timeToLiveSeconds` when unset.
+   */
+  timeToLiveSeconds?: number | null | undefined;
 }
 
 const STATUSES: Readonly<Record<string, PaymentStatus>> = {
@@ -209,7 +219,23 @@ export class WaveMoney {
       .url('returnUrl', data.returnUrl)
       .required('description', data.description)
       .when(items.length === 0, 'items', 'The items field must have at least one item.')
-      .string('merchantReferenceId', data.merchantReferenceId);
+      .string('merchantReferenceId', data.merchantReferenceId)
+      .string('merchantName', data.merchantName)
+      .when(
+        typeof data.merchantName === 'string' && data.merchantName.trim() === '',
+        'merchantName',
+        'The merchantName field is required.',
+      )
+      .when(
+        isSet(data.timeToLiveSeconds) && !Number.isInteger(data.timeToLiveSeconds),
+        'timeToLiveSeconds',
+        'The timeToLiveSeconds field must be an integer.',
+      )
+      .when(
+        isSet(data.timeToLiveSeconds) && (data.timeToLiveSeconds as number) < 1,
+        'timeToLiveSeconds',
+        'The timeToLiveSeconds field must be greater than 0.',
+      );
     items.forEach((item, index) => {
       validator
         .required(`items.${index}.name`, item?.name)
@@ -240,7 +266,7 @@ export class WaveMoney {
     }
 
     const amount = (WaveMoney.resolvedAmount(data) as Amount).toString();
-    const ttl = String(this.config.timeToLiveSeconds);
+    const ttl = String(data.timeToLiveSeconds ?? this.config.timeToLiveSeconds);
     // Wave documents items as [{"name": "...", "amount": 1000}] with a numeric amount; the amount
     // text is written as a JSON number without passing through a float.
     const items = `[${data.items
@@ -260,7 +286,7 @@ export class WaveMoney {
         backend_result_url: data.callbackUrl,
         amount,
         payment_description: data.description,
-        merchant_name: this.config.merchantName,
+        merchant_name: data.merchantName ?? this.config.merchantName,
         items,
         hash: this.hash([
           ttl,
@@ -335,6 +361,10 @@ export class WaveMoney {
   private hash(parts: readonly string[]): string {
     return hmacSha256Hex(this.config.secretKey, parts.join(''));
   }
+}
+
+function isSet(value: unknown): boolean {
+  return value !== undefined && value !== null;
 }
 
 function errorMessage(body: LosslessObject): string {

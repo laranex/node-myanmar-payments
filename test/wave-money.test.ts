@@ -97,6 +97,30 @@ describe('WaveMoney', () => {
     expect(payment.raw).toEqual({ message: 'success', transaction_id: 'enc/123+abc' });
   });
 
+  it('overrides the merchant name and time to live for one payment', async () => {
+    const fake = new FakeFetch(
+      { body: { message: 'success', transaction_id: 'a' } },
+      { body: { message: 'success', transaction_id: 'b' } },
+    );
+    const wave = gateway(fake);
+
+    await wave.initiate({ ...paymentData(), merchantName: 'Tikkat', timeToLiveSeconds: 600 });
+    const overridden = fake.last().form();
+    expect(overridden.get('merchant_name')).toBe('Tikkat');
+    expect(overridden.get('time_to_live_in_seconds')).toBe('600');
+    expect(overridden.get('hash')).toBe(
+      hmacHex('600testmerchantID1001000https://shop.test/wave/callbackref-001', 'test-secret'),
+    );
+
+    await wave.initiate({ ...paymentData(), merchantName: null, timeToLiveSeconds: null });
+    const defaults = fake.last().form();
+    expect(defaults.get('merchant_name')).toBe('Shop');
+    expect(defaults.get('time_to_live_in_seconds')).toBe('300');
+    expect(defaults.get('hash')).toBe(
+      hmacHex('300testmerchantID1001000https://shop.test/wave/callbackref-001', 'test-secret'),
+    );
+  });
+
   it.each([
     [
       'duplicate',
@@ -275,10 +299,34 @@ describe('WaveMoney', () => {
     ['nameless item', (d) => ({ ...d, items: [{ name: '', amount: 1 }] }), 'items.0.name'],
     ['decimal total', (d) => ({ ...d, amount: Amount.parse('250.50') }), 'amount'],
     ['zero total', (d) => ({ ...d, amount: 0 }), 'amount'],
+    ['blank merchant name', (d) => ({ ...d, merchantName: '  ' }), 'merchantName'],
+    ['non-string merchant name', (d) => ({ ...d, merchantName: 5 as never }), 'merchantName'],
+    ['zero time to live', (d) => ({ ...d, timeToLiveSeconds: 0 }), 'timeToLiveSeconds'],
+    ['negative time to live', (d) => ({ ...d, timeToLiveSeconds: -5 }), 'timeToLiveSeconds'],
+    ['decimal time to live', (d) => ({ ...d, timeToLiveSeconds: 1.5 }), 'timeToLiveSeconds'],
+    ['text time to live', (d) => ({ ...d, timeToLiveSeconds: '60' as never }), 'timeToLiveSeconds'],
   ])('validates against Wave rules: %s', (_name, mutate, field) => {
     const error = caught(() => WaveMoney.validate(mutate(paymentData())));
     expect(error).toBeInstanceOf(InvalidPaymentDataError);
     expect((error as InvalidPaymentDataError).errors[field]).toBeTruthy();
+  });
+
+  it('uses the documented messages for per-payment overrides', () => {
+    const errors = (change: Partial<WaveMoneyPaymentData>): Readonly<Record<string, string>> =>
+      (caught(() => WaveMoney.validate({ ...paymentData(), ...change })) as InvalidPaymentDataError)
+        .errors;
+    expect(errors({ merchantName: '' })).toEqual({
+      merchantName: 'The merchantName field is required.',
+    });
+    expect(errors({ timeToLiveSeconds: 0 })).toEqual({
+      timeToLiveSeconds: 'The timeToLiveSeconds field must be greater than 0.',
+    });
+    expect(errors({ timeToLiveSeconds: 2.5 })).toEqual({
+      timeToLiveSeconds: 'The timeToLiveSeconds field must be an integer.',
+    });
+    expect(() =>
+      WaveMoney.validate({ ...paymentData(), merchantName: 'Tikkat', timeToLiveSeconds: 1 }),
+    ).not.toThrow();
   });
 
   it('reports only the item when an item amount is invalid and no total is given', () => {
