@@ -21,7 +21,7 @@ import {
   type TokenCache,
   type WaveMoneyPaymentData,
 } from '../src/index.js';
-import { caught, FakeFetch, fixture } from './helpers.js';
+import { caught, FakeFetch, fixture, rejected } from './helpers.js';
 
 /** The cross-SDK vectors php-, go-, node- and python-myanmar-payments all ship unchanged. */
 interface Vectors {
@@ -60,12 +60,13 @@ interface Vectors {
     aya_whole_amounts_only: string;
     kbz_decimals: string;
     kbz_time_to_live_range: string;
-    kbz_time_to_live_minutes: string;
   };
   kbz_pay_time_to_live: {
     variable: string;
-    cases: { config: string | null; payment: number | null; timeout_express: string | null }[];
+    cases: { config: string | null; payment: number | null; timeout_express: string }[];
+    missing: TimeToLiveMissing;
   };
+  wave_money_time_to_live_missing: TimeToLiveMissing & { variable: string };
   wave_money_request_overrides: {
     config: {
       merchant_id: string;
@@ -84,6 +85,12 @@ interface Vectors {
     cases: (WaveOverrides & { expected: Record<string, string> })[];
     invalid: (WaveOverrides & { setting: 'merchant_name' | 'time_to_live_in_seconds' })[];
   };
+}
+
+interface TimeToLiveMissing {
+  configs: (string | null)[];
+  field: string;
+  message: string;
 }
 
 interface WaveOverrides {
@@ -353,13 +360,9 @@ describe('parity vectors', () => {
       errorsOf(() => KbzPay.validate({ ...kbz, amount: Amount.parse('1000.505') })).amount,
     ).toBe(messages.kbz_decimals);
     expect(
-      errorsOf(() => KbzPay.validate({ ...kbz, amount: 1000, timeToLiveSeconds: 0 }))
-        .timeToLiveSeconds,
+      errorsOf(() => KbzPay.validate({ ...kbz, amount: 1000, timeToLiveMinutes: 0 }))
+        .timeToLiveMinutes,
     ).toBe(messages.kbz_time_to_live_range);
-    expect(
-      errorsOf(() => KbzPay.validate({ ...kbz, amount: 1000, timeToLiveSeconds: 90 }))
-        .timeToLiveSeconds,
-    ).toBe(messages.kbz_time_to_live_minutes);
   });
 
   it('applies per-payment Wave Money overrides like every other SDK', async () => {
@@ -417,22 +420,64 @@ describe('parity vectors', () => {
           },
         },
       });
-      const env: Record<string, string> = { ...vectors.config.env };
-      if (testCase.config !== null) {
-        env[variable] = testCase.config;
-      }
+      const env = envWith(variable, testCase.config);
       const payment = await KbzPay.fromEnv(env, { fetch: fake.fetch }).qr({
         orderId: 'ORDER_1',
         amount: 1000,
         callbackUrl: 'https://shop.test/cb',
-        timeToLiveSeconds: testCase.payment ?? undefined,
+        timeToLiveMinutes: testCase.payment ?? undefined,
       });
 
       const request = fake.last().json().Request as { biz_content: Record<string, unknown> };
-      expect(request.biz_content.timeout_express ?? null, JSON.stringify(testCase)).toBe(
+      expect(request.biz_content.timeout_express, JSON.stringify(testCase)).toBe(
         testCase.timeout_express,
       );
-      expect(payment.expiresAt === undefined).toBe(testCase.timeout_express === null);
+      expect(payment.expiresAt).toBeInstanceOf(Date);
+    }
+
+    const { missing } = vectors.kbz_pay_time_to_live;
+    for (const value of missing.configs) {
+      const fake = new FakeFetch();
+      const env = envWith(variable, value);
+      const error = await rejected(
+        KbzPay.fromEnv(env, { fetch: fake.fetch }).qr({
+          orderId: 'ORDER_1',
+          amount: 1000,
+          callbackUrl: 'https://shop.test/cb',
+        }),
+      );
+      expect(error).toBeInstanceOf(InvalidPaymentDataError);
+      expect((error as InvalidPaymentDataError).errors).toEqual({
+        [missing.field]: missing.message,
+      });
+      expect(fake.requests).toEqual([]);
+    }
+  });
+
+  it('requires a Wave Money time to live from the payment or the configuration like every other SDK', async () => {
+    const { variable, configs, field, message } = vectors.wave_money_time_to_live_missing;
+    for (const value of configs) {
+      const fake = new FakeFetch();
+      const env = envWith(variable, value);
+      const data: WaveMoneyPaymentData = {
+        orderId: '100',
+        callbackUrl: 'https://shop.test/cb',
+        returnUrl: 'https://shop.test/done',
+        description: 'Order 100',
+        items: [{ name: 'Shoes', amount: 1000 }],
+      };
+      const error = await rejected(WaveMoney.fromEnv(env, { fetch: fake.fetch }).initiate(data));
+      expect(error).toBeInstanceOf(InvalidPaymentDataError);
+      expect((error as InvalidPaymentDataError).errors).toEqual({ [field]: message });
+      expect(fake.requests).toEqual([]);
     }
   });
 });
+
+/** The shared config env with `variable` set to `value`, or left out when `value` is null. */
+function envWith(variable: string, value: string | null): Record<string, string> {
+  const env = Object.fromEntries(
+    Object.entries(vectors.config.env).filter(([key]) => key !== variable),
+  );
+  return value === null ? env : { ...env, [variable]: value };
+}

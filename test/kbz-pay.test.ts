@@ -36,6 +36,7 @@ const config = {
   merchantCode: '100001',
   timeoutSeconds: 30,
   apiUrl: 'https://kbz.test',
+  timeToLiveMinutes: 15,
 };
 
 function gateway(fake = new FakeFetch()): KbzPay {
@@ -65,23 +66,21 @@ function requestOf(fake: FakeFetch): Record<string, unknown> {
 describe('KbzPayConfig time to live', () => {
   const credentials = { appId: 'kp123', appKey: 'secret-key', merchantCode: '100001' };
 
-  it('takes a whole number of minutes in seconds, as a number or text', () => {
-    expect(new KbzPayConfig({ ...credentials, timeToLiveSeconds: 1800 }).timeToLiveSeconds).toBe(
-      1800,
-    );
-    expect(new KbzPayConfig({ ...credentials, timeToLiveSeconds: ' 600 ' }).timeToLiveSeconds).toBe(
-      600,
+  it('takes a whole number of minutes, as a number or text', () => {
+    expect(new KbzPayConfig({ ...credentials, timeToLiveMinutes: 30 }).timeToLiveMinutes).toBe(30);
+    expect(new KbzPayConfig({ ...credentials, timeToLiveMinutes: ' 10 ' }).timeToLiveMinutes).toBe(
+      10,
     );
     expect(
-      new KbzPayConfig({ ...credentials, timeToLiveSeconds: null }).timeToLiveSeconds,
+      new KbzPayConfig({ ...credentials, timeToLiveMinutes: null }).timeToLiveMinutes,
     ).toBeUndefined();
   });
 
-  it.each([90, 7260, 1.5, Number.NaN])('rejects %j', (timeToLiveSeconds) => {
-    expect(caught(() => new KbzPayConfig({ ...credentials, timeToLiveSeconds }))).toMatchObject({
-      key: 'time_to_live_in_seconds',
+  it.each([0, 121, 1.5, Number.NaN])('rejects %j', (timeToLiveMinutes) => {
+    expect(caught(() => new KbzPayConfig({ ...credentials, timeToLiveMinutes }))).toMatchObject({
+      key: 'time_to_live_in_minutes',
       message:
-        'The kbz_pay configuration [time_to_live_in_seconds] must be a multiple of 60 from 60 to 7200.',
+        'The kbz_pay configuration [time_to_live_in_minutes] must be a whole number from 1 to 120.',
     });
   });
 });
@@ -144,6 +143,7 @@ describe('KbzPay', () => {
       trade_type: 'PWAAPP',
       total_amount: '1000',
       trans_currency: 'MMK',
+      timeout_express: '15m',
     });
     const { biz_content: _biz, ...common } = request;
     expect(request.sign).toBe(signer.sign({ ...common, ...biz }));
@@ -174,7 +174,7 @@ describe('KbzPay', () => {
       qrString: 'kbzpay://qr/abc',
       qrImage: undefined,
       reference: 'PREPAY123',
-      expiresAt: undefined,
+      expiresAt: new Date((NOW + 15 * 60) * 1000),
     });
     expect(payment.qrImageDataUri()).toBeUndefined();
     expect((requestOf(fake).biz_content as Record<string, unknown>).trade_type).toBe(
@@ -182,10 +182,10 @@ describe('KbzPay', () => {
     );
   });
 
-  it('sets the QR expiry from timeToLiveSeconds', async () => {
+  it('sets the QR expiry from timeToLiveMinutes', async () => {
     const payment = await gateway(new FakeFetch(precreate({ qrCode: 'qr' }))).qr({
       ...data,
-      timeToLiveSeconds: 1800,
+      timeToLiveMinutes: 30,
     });
     expect(payment.expiresAt?.getTime()).toBe((NOW + 30 * 60) * 1000);
   });
@@ -229,7 +229,7 @@ describe('KbzPay', () => {
       amount: Amount.parse('1000.50'),
       callbackUrl: 'https://shop.test/cb',
       title: 'Shoes',
-      timeToLiveSeconds: 1800,
+      timeToLiveMinutes: 30,
       callbackInfo: 'cart=9',
     });
     expect(requestOf(fake).biz_content).toMatchObject({
@@ -492,10 +492,10 @@ describe('KbzPay', () => {
       { callbackUrl: `https://shop.test/${'a'.repeat(500)}` },
       'callbackUrl',
     ],
-    ['time to live above 120 minutes', { timeToLiveSeconds: 7260 }, 'timeToLiveSeconds'],
-    ['time to live of 0', { timeToLiveSeconds: 0 }, 'timeToLiveSeconds'],
-    ['negative time to live', { timeToLiveSeconds: -60 }, 'timeToLiveSeconds'],
-    ['time to live in part minutes', { timeToLiveSeconds: 90 }, 'timeToLiveSeconds'],
+    ['time to live above 120', { timeToLiveMinutes: 121 }, 'timeToLiveMinutes'],
+    ['time to live of 0', { timeToLiveMinutes: 0 }, 'timeToLiveMinutes'],
+    ['negative time to live', { timeToLiveMinutes: -1 }, 'timeToLiveMinutes'],
+    ['fractional time to live', { timeToLiveMinutes: 1.5 }, 'timeToLiveMinutes'],
     ['callback info over 512 encoded', { callbackInfo: '='.repeat(200) }, 'callbackInfo'],
   ])('validates the order against KBZ limits: %s', (_name, change, field) => {
     const error = caught(() => KbzPay.validate({ ...data, ...change }));

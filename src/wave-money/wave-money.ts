@@ -6,13 +6,13 @@ import {
   envFirst,
   HTTP_TIMEOUT_VARIABLE,
   optionalSetting,
-  requireSeconds,
+  optionalSeconds,
   requireSetting,
   resolveTimeout,
   trimUrl,
   type EnvSource,
 } from '../core/env.js';
-import { ApiError, SignatureVerificationError } from '../core/errors.js';
+import { ApiError, InvalidPaymentDataError, SignatureVerificationError } from '../core/errors.js';
 import {
   httpClientFrom,
   Transport,
@@ -33,8 +33,12 @@ export interface WaveMoneyConfigOptions {
   secretKey: string;
   /** Your business name, shown on Wave's payment page. */
   merchantName: string;
-  /** How long the customer has to pay, in seconds: a whole number greater than 0 (or its text). */
-  timeToLiveSeconds: number | string;
+  /**
+   * How long the customer has to pay, in seconds: a whole number greater than 0 (or its text). A
+   * payment's own `timeToLiveSeconds` overrides it. Unset or blank is allowed, but then every
+   * payment must set its own.
+   */
+  timeToLiveSeconds?: number | string | null | undefined;
   /**
    * Seconds before the default HTTP client gives up on a request, a whole number greater than 0
    * (or its text). Defaults to 30 (`DEFAULT_TIMEOUT_SECONDS`) when unset or blank. A
@@ -58,8 +62,8 @@ export class WaveMoneyConfig {
   readonly merchantId: string;
   readonly secretKey: string;
   readonly merchantName: string;
-  /** Seconds the customer has to pay. */
-  readonly timeToLiveSeconds: number;
+  /** Seconds the customer has to pay unless the payment sets its own; `undefined` when unset. */
+  readonly timeToLiveSeconds: number | undefined;
   /** Seconds before the default HTTP client gives up on a request. */
   readonly timeoutSeconds: number;
   /** The API base URL in use. */
@@ -71,7 +75,7 @@ export class WaveMoneyConfig {
     this.merchantId = requireSetting('wave_money', 'merchant_id', options.merchantId);
     this.secretKey = requireSetting('wave_money', 'secret_key', options.secretKey);
     this.merchantName = requireSetting('wave_money', 'merchant_name', options.merchantName);
-    this.timeToLiveSeconds = requireSeconds(
+    this.timeToLiveSeconds = optionalSeconds(
       'wave_money',
       'time_to_live_in_seconds',
       options.timeToLiveSeconds,
@@ -138,7 +142,7 @@ export interface WaveMoneyPaymentData {
   merchantName?: string | null | undefined;
   /**
    * How long the customer has to pay this payment, in seconds: a whole number greater than 0.
-   * Defaults to the configured `timeToLiveSeconds` when unset.
+   * Defaults to the configured `timeToLiveSeconds` when unset; one of the two is required.
    */
   timeToLiveSeconds?: number | null | undefined;
 }
@@ -254,19 +258,27 @@ export class WaveMoney {
   /**
    * Creates a payment request and returns Wave's page to redirect the customer to. Once `data`
    * passes validation it fills `data.merchantReferenceId` with a random id when empty, so store it
-   * afterwards. Invalid data is left untouched.
+   * afterwards. Invalid data is left untouched. Throws `InvalidPaymentDataError` before any request
+   * when neither the payment nor the config sets a time to live.
    */
   async initiate(
     data: WaveMoneyPaymentData,
     options: RequestOptions = {},
   ): Promise<RedirectPayment> {
     WaveMoney.validate(data);
+    const timeToLiveSeconds = data.timeToLiveSeconds ?? this.config.timeToLiveSeconds;
+    if (timeToLiveSeconds === undefined) {
+      throw new InvalidPaymentDataError({
+        timeToLiveSeconds:
+          'The timeToLiveSeconds field is required when the wave_money configuration has no [time_to_live_in_seconds].',
+      });
+    }
     if (!data.merchantReferenceId) {
       data.merchantReferenceId = randomHex();
     }
 
     const amount = (WaveMoney.resolvedAmount(data) as Amount).toString();
-    const ttl = String(data.timeToLiveSeconds ?? this.config.timeToLiveSeconds);
+    const ttl = String(timeToLiveSeconds);
     // Wave documents items as [{"name": "...", "amount": 1000}] with a numeric amount; the amount
     // text is written as a JSON number without passing through a float.
     const items = `[${data.items
