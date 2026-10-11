@@ -59,7 +59,8 @@ interface Vectors {
     whole_amounts_only: string;
     aya_whole_amounts_only: string;
     kbz_decimals: string;
-    kbz_timeout_zero: string;
+    kbz_time_to_live_range: string;
+    kbz_time_to_live_minutes: string;
   };
   wave_money_request_overrides: {
     config: {
@@ -348,8 +349,13 @@ describe('parity vectors', () => {
       errorsOf(() => KbzPay.validate({ ...kbz, amount: Amount.parse('1000.505') })).amount,
     ).toBe(messages.kbz_decimals);
     expect(
-      errorsOf(() => KbzPay.validate({ ...kbz, amount: 1000, timeoutMinutes: 0 })).timeoutMinutes,
-    ).toBe(messages.kbz_timeout_zero);
+      errorsOf(() => KbzPay.validate({ ...kbz, amount: 1000, timeToLiveSeconds: 0 }))
+        .timeToLiveSeconds,
+    ).toBe(messages.kbz_time_to_live_range);
+    expect(
+      errorsOf(() => KbzPay.validate({ ...kbz, amount: 1000, timeToLiveSeconds: 90 }))
+        .timeToLiveSeconds,
+    ).toBe(messages.kbz_time_to_live_minutes);
   });
 
   it('applies per-payment Wave Money overrides like every other SDK', async () => {

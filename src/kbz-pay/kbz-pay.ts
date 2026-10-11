@@ -106,8 +106,11 @@ export interface KbzPayPaymentData {
   callbackUrl: string;
   /** The product name shown to the customer. */
   title?: string | undefined;
-  /** How long the order stays payable, 1 to 120 minutes. KBZ defaults to 120. */
-  timeoutMinutes?: number | undefined;
+  /**
+   * Seconds the customer has to pay before the order expires, 60 to 7200 in whole minutes (a multiple
+   * of 60). KBZ counts minutes, so 1800 is sent as `30m`. KBZ defaults to 7200 (120 minutes).
+   */
+  timeToLiveSeconds?: number | undefined;
   /** Free text KBZ sends back unchanged in the callback, at most 512 characters once URL-encoded. */
   callbackInfo?: string | undefined;
 }
@@ -169,7 +172,12 @@ export class KbzPay {
         'The callbackUrl field must not contain a query string.',
       )
       .string('title', data.title)
-      .between('timeoutMinutes', data.timeoutMinutes, 1, 120)
+      .between('timeToLiveSeconds', data.timeToLiveSeconds, 60, 7200)
+      .when(
+        Number.isInteger(data.timeToLiveSeconds) && (data.timeToLiveSeconds as number) % 60 !== 0,
+        'timeToLiveSeconds',
+        'The timeToLiveSeconds field must be a multiple of 60.',
+      )
       .string('callbackInfo', data.callbackInfo)
       .max(
         'callbackInfo',
@@ -209,9 +217,9 @@ export class KbzPay {
       orderId: data.orderId,
       qrString: qrCode,
       expiresAt:
-        data.timeoutMinutes === undefined
+        data.timeToLiveSeconds === undefined
           ? undefined
-          : new Date(Date.now() + data.timeoutMinutes * 60_000),
+          : new Date(Date.now() + data.timeToLiveSeconds * 1000),
       reference: order.prepayId,
       raw: toPlainObject(order.response),
     });
@@ -306,8 +314,8 @@ export class KbzPay {
     if (data.title) {
       biz.title = data.title;
     }
-    if (data.timeoutMinutes !== undefined) {
-      biz.timeout_express = `${data.timeoutMinutes}m`;
+    if (data.timeToLiveSeconds !== undefined) {
+      biz.timeout_express = `${data.timeToLiveSeconds / 60}m`;
     }
     if (data.callbackInfo) {
       biz.callback_info = queryEscape(data.callbackInfo);

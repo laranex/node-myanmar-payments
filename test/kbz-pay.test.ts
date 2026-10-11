@@ -158,10 +158,10 @@ describe('KbzPay', () => {
     );
   });
 
-  it('sets the QR expiry from timeoutMinutes', async () => {
+  it('sets the QR expiry from timeToLiveSeconds', async () => {
     const payment = await gateway(new FakeFetch(precreate({ qrCode: 'qr' }))).qr({
       ...data,
-      timeoutMinutes: 30,
+      timeToLiveSeconds: 1800,
     });
     expect(payment.expiresAt?.getTime()).toBe((NOW + 30 * 60) * 1000);
   });
@@ -205,7 +205,7 @@ describe('KbzPay', () => {
       amount: Amount.parse('1000.50'),
       callbackUrl: 'https://shop.test/cb',
       title: 'Shoes',
-      timeoutMinutes: 30,
+      timeToLiveSeconds: 1800,
       callbackInfo: 'cart=9',
     });
     expect(requestOf(fake).biz_content).toMatchObject({
@@ -468,9 +468,10 @@ describe('KbzPay', () => {
       { callbackUrl: `https://shop.test/${'a'.repeat(500)}` },
       'callbackUrl',
     ],
-    ['timeout above 120', { timeoutMinutes: 121 }, 'timeoutMinutes'],
-    ['timeout of 0', { timeoutMinutes: 0 }, 'timeoutMinutes'],
-    ['negative timeout', { timeoutMinutes: -1 }, 'timeoutMinutes'],
+    ['time to live above 120 minutes', { timeToLiveSeconds: 7260 }, 'timeToLiveSeconds'],
+    ['time to live of 0', { timeToLiveSeconds: 0 }, 'timeToLiveSeconds'],
+    ['negative time to live', { timeToLiveSeconds: -60 }, 'timeToLiveSeconds'],
+    ['time to live in part minutes', { timeToLiveSeconds: 90 }, 'timeToLiveSeconds'],
     ['callback info over 512 encoded', { callbackInfo: '='.repeat(200) }, 'callbackInfo'],
   ])('validates the order against KBZ limits: %s', (_name, change, field) => {
     const error = caught(() => KbzPay.validate({ ...data, ...change }));
