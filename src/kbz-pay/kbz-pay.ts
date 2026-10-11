@@ -17,7 +17,7 @@ import {
   trimUrl,
   type EnvSource,
 } from '../core/env.js';
-import { ApiError, SignatureVerificationError } from '../core/errors.js';
+import { ApiError, ConfigurationError, SignatureVerificationError } from '../core/errors.js';
 import {
   httpClientFrom,
   Transport,
@@ -49,6 +49,35 @@ export interface KbzPayConfigOptions {
   apiUrl?: string | undefined;
   /** Overrides the PWA checkout URL. A trailing `#` or `#/` is normalized to `#/`. */
   pwaUrl?: string | undefined;
+  /**
+   * Seconds the customer has to pay each order, a multiple of 60 from 60 to 7200 (or its text).
+   * A payment's own `timeToLiveSeconds` overrides it; unset or blank leaves it to KBZ (7200).
+   */
+  timeToLiveSeconds?: number | string | null | undefined;
+}
+
+/** What a valid KBZ Pay `time_to_live_in_seconds` is: KBZ counts whole minutes, up to 120. */
+const TIME_TO_LIVE_REQUIREMENT = 'a multiple of 60 from 60 to 7200';
+
+function resolveTimeToLive(value: unknown): number | undefined {
+  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+    return undefined;
+  }
+  let seconds: number | undefined;
+  if (typeof value === 'number' && Number.isSafeInteger(value)) {
+    seconds = value;
+  } else if (typeof value === 'string' && /^[+-]?\d+$/.test(value.trim())) {
+    seconds = Number.parseInt(value.trim(), 10);
+  }
+  if (seconds === undefined || seconds < 60 || seconds > 7200 || seconds % 60 !== 0) {
+    throw new ConfigurationError(
+      'kbz_pay',
+      'time_to_live_in_seconds',
+      true,
+      TIME_TO_LIVE_REQUIREMENT,
+    );
+  }
+  return seconds;
 }
 
 /**
@@ -68,6 +97,8 @@ export class KbzPayConfig {
   readonly apiUrl: string;
   /** The PWA checkout URL in use, always ending in `/`. */
   readonly pwaUrl: string;
+  /** Seconds the customer has to pay each order unless the payment sets its own; `undefined` leaves it to KBZ. */
+  readonly timeToLiveSeconds: number | undefined;
 
   constructor(options: KbzPayConfigOptions) {
     this.appId = requireSetting('kbz_pay', 'app_id', options.appId);
@@ -76,11 +107,13 @@ export class KbzPayConfig {
     this.timeoutSeconds = resolveTimeout('kbz_pay', options.timeoutSeconds);
     this.apiUrl = trimUrl(optionalSetting(options.apiUrl) ?? KbzPayConfig.PRODUCTION_API_URL);
     this.pwaUrl = `${trimUrl(optionalSetting(options.pwaUrl) ?? KbzPayConfig.PRODUCTION_PWA_URL)}/`;
+    this.timeToLiveSeconds = resolveTimeToLive(options.timeToLiveSeconds);
   }
 
   /**
    * Reads `KBZ_PAY_APP_ID`, `KBZ_PAY_APP_KEY`, `KBZ_PAY_MERCHANT_CODE`,
-   * `MYANMAR_PAYMENTS_HTTP_TIMEOUT`, `KBZ_PAY_BASE_URL` and `KBZ_PAY_PWA_BASE_REDIRECT_URL`.
+   * `MYANMAR_PAYMENTS_HTTP_TIMEOUT`, `KBZ_PAY_BASE_URL`, `KBZ_PAY_PWA_BASE_REDIRECT_URL` and
+   * `KBZ_PAY_TIME_TO_LIVE_IN_SECONDS`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): KbzPayConfig {
     return new KbzPayConfig({
@@ -90,6 +123,7 @@ export class KbzPayConfig {
       timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
       apiUrl: envFirst(env, 'KBZ_PAY_BASE_URL'),
       pwaUrl: envFirst(env, 'KBZ_PAY_PWA_BASE_REDIRECT_URL'),
+      timeToLiveSeconds: envFirst(env, 'KBZ_PAY_TIME_TO_LIVE_IN_SECONDS'),
     });
   }
 }
@@ -108,7 +142,8 @@ export interface KbzPayPaymentData {
   title?: string | undefined;
   /**
    * Seconds the customer has to pay before the order expires, 60 to 7200 in whole minutes (a multiple
-   * of 60). KBZ counts minutes, so 1800 is sent as `30m`. KBZ defaults to 7200 (120 minutes).
+   * of 60). KBZ counts minutes, so 1800 is sent as `30m`. Overrides the config's `timeToLiveSeconds`;
+   * when both are unset KBZ allows 7200 (120 minutes).
    */
   timeToLiveSeconds?: number | undefined;
   /** Free text KBZ sends back unchanged in the callback, at most 512 characters once URL-encoded. */
@@ -130,6 +165,8 @@ interface Order {
   prepayId: string;
   nonce: string;
   timestamp: string;
+  /** The time to live sent to KBZ: the payment's, else the config's. */
+  timeToLiveSeconds: number | undefined;
   response: LosslessObject;
 }
 
@@ -217,9 +254,9 @@ export class KbzPay {
       orderId: data.orderId,
       qrString: qrCode,
       expiresAt:
-        data.timeToLiveSeconds === undefined
+        order.timeToLiveSeconds === undefined
           ? undefined
-          : new Date(Date.now() + data.timeToLiveSeconds * 1000),
+          : new Date(Date.now() + order.timeToLiveSeconds * 1000),
       reference: order.prepayId,
       raw: toPlainObject(order.response),
     });
@@ -314,8 +351,9 @@ export class KbzPay {
     if (data.title) {
       biz.title = data.title;
     }
-    if (data.timeToLiveSeconds !== undefined) {
-      biz.timeout_express = `${data.timeToLiveSeconds / 60}m`;
+    const timeToLiveSeconds = data.timeToLiveSeconds ?? this.config.timeToLiveSeconds;
+    if (timeToLiveSeconds !== undefined) {
+      biz.timeout_express = `${timeToLiveSeconds / 60}m`;
     }
     if (data.callbackInfo) {
       biz.callback_info = queryEscape(data.callbackInfo);
@@ -338,7 +376,7 @@ export class KbzPay {
     if (prepayId === '') {
       throw new ApiError('KBZ Pay did not return a prepay_id.', { raw: toPlainObject(response) });
     }
-    return { prepayId, nonce, timestamp: time, response };
+    return { prepayId, nonce, timestamp: time, timeToLiveSeconds, response };
   }
 
   /** Sends a signed request and returns the `Response` object, throwing when KBZ reports an error. */

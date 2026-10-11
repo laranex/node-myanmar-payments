@@ -62,6 +62,30 @@ function requestOf(fake: FakeFetch): Record<string, unknown> {
   return fake.last().json().Request as Record<string, unknown>;
 }
 
+describe('KbzPayConfig time to live', () => {
+  const credentials = { appId: 'kp123', appKey: 'secret-key', merchantCode: '100001' };
+
+  it('takes a whole number of minutes in seconds, as a number or text', () => {
+    expect(new KbzPayConfig({ ...credentials, timeToLiveSeconds: 1800 }).timeToLiveSeconds).toBe(
+      1800,
+    );
+    expect(new KbzPayConfig({ ...credentials, timeToLiveSeconds: ' 600 ' }).timeToLiveSeconds).toBe(
+      600,
+    );
+    expect(
+      new KbzPayConfig({ ...credentials, timeToLiveSeconds: null }).timeToLiveSeconds,
+    ).toBeUndefined();
+  });
+
+  it.each([90, 7260, 1.5, Number.NaN])('rejects %j', (timeToLiveSeconds) => {
+    expect(caught(() => new KbzPayConfig({ ...credentials, timeToLiveSeconds }))).toMatchObject({
+      key: 'time_to_live_in_seconds',
+      message:
+        'The kbz_pay configuration [time_to_live_in_seconds] must be a multiple of 60 from 60 to 7200.',
+    });
+  });
+});
+
 describe('KbzPaySigner', () => {
   it('builds the sign string exactly as the KBZ docs example', () => {
     const vector = fixture<{ fields: Record<string, unknown>; expected: string }>(

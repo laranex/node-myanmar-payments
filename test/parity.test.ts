@@ -62,6 +62,10 @@ interface Vectors {
     kbz_time_to_live_range: string;
     kbz_time_to_live_minutes: string;
   };
+  kbz_pay_time_to_live: {
+    variable: string;
+    cases: { config: string | null; payment: number | null; timeout_express: string | null }[];
+  };
   wave_money_request_overrides: {
     config: {
       merchant_id: string;
@@ -396,6 +400,39 @@ describe('parity vectors', () => {
       expect(Object.keys((error as InvalidPaymentDataError).errors)).toEqual([
         fields[testCase.setting],
       ]);
+    }
+  });
+
+  it("takes KBZ Pay's time to live from the payment, then the configuration, like every other SDK", async () => {
+    const { variable, cases } = vectors.kbz_pay_time_to_live;
+    for (const testCase of cases) {
+      const fake = new FakeFetch({
+        body: {
+          Response: {
+            result: 'SUCCESS',
+            code: '0',
+            msg: 'success',
+            prepay_id: 'PREPAY123',
+            qrCode: 'qr',
+          },
+        },
+      });
+      const env: Record<string, string> = { ...vectors.config.env };
+      if (testCase.config !== null) {
+        env[variable] = testCase.config;
+      }
+      const payment = await KbzPay.fromEnv(env, { fetch: fake.fetch }).qr({
+        orderId: 'ORDER_1',
+        amount: 1000,
+        callbackUrl: 'https://shop.test/cb',
+        timeToLiveSeconds: testCase.payment ?? undefined,
+      });
+
+      const request = fake.last().json().Request as { biz_content: Record<string, unknown> };
+      expect(request.biz_content.timeout_express ?? null, JSON.stringify(testCase)).toBe(
+        testCase.timeout_express,
+      );
+      expect(payment.expiresAt === undefined).toBe(testCase.timeout_express === null);
     }
   });
 });

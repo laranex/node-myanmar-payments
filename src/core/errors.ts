@@ -81,13 +81,19 @@ export class ConfigurationError extends PaymentError {
   readonly key: string;
 
   /**
-   * @param invalid `true` when the setting is set but is not a whole number greater than 0;
-   *   `false` (the default) when it is missing.
+   * @param invalid `true` when the setting is set but out of range; `false` (the default) when it
+   *   is missing.
+   * @param requirement What a valid value is, used in the message when `invalid`.
    */
-  constructor(gateway: string, key: string, invalid = false) {
+  constructor(
+    gateway: string,
+    key: string,
+    invalid = false,
+    requirement = 'a whole number greater than 0',
+  ) {
     super(
       invalid
-        ? `The ${gateway} configuration [${key}] must be a whole number greater than 0.`
+        ? `The ${gateway} configuration [${key}] must be ${requirement}.`
         : `The ${gateway} configuration is missing [${key}].`,
     );
     this.gateway = gateway;
