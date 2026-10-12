@@ -266,6 +266,41 @@ describe('WaveMoney', () => {
     expect(callback.gatewayReference).toBeUndefined();
   });
 
+  it.each<[string, Record<string, unknown>]>([
+    ['a missing amount', { amount: undefined }],
+    ['a negative amount', { amount: '-1000' }],
+    ['an amount with text', { amount: '1000MMK' }],
+    ['an amount with two dots', { amount: '1.0.0' }],
+    ['no order id and no merchant reference id', { orderId: '', merchantReferenceId: null }],
+    ['an order id with other characters', { orderId: '100.1' }],
+    ['an order id with a space', { orderId: '10 0' }],
+    ['a merchant reference id with other characters', { merchantReferenceId: 'ref:001' }],
+    ['a malformed merchant reference id next to an order id', { merchantReferenceId: 'r/1' }],
+  ])('rejects a correctly hashed callback with %s', (_name, change) => {
+    const fields: Record<string, unknown> = {
+      status: 'PAYMENT_CONFIRMED',
+      orderId: '100',
+      amount: '1000',
+      merchantReferenceId: 'ref-001',
+      ...change,
+    };
+    expect(caught(() => gateway().handleCallback(signedCallback(fields)))).toBeInstanceOf(
+      SignatureVerificationError,
+    );
+  });
+
+  it('accepts ids with letters, digits, "_" and "-" and a decimal amount', () => {
+    const callback = gateway().handleCallback(
+      signedCallback({
+        status: 'PAYMENT_CONFIRMED',
+        orderId: 'Order_2026-10',
+        amount: '1000.00',
+        merchantReferenceId: 'ab12_CD-34',
+      }),
+    );
+    expect(callback).toMatchObject({ orderId: 'Order_2026-10', amount: '1000.00' });
+  });
+
   it('rejects a callback signed with another key or without a hash', () => {
     expect(
       caught(() =>
@@ -281,6 +316,13 @@ describe('WaveMoney', () => {
 
   it.each<[string, (data: WaveMoneyPaymentData) => WaveMoneyPaymentData, string]>([
     ['no items', (d) => ({ ...d, items: [] }), 'items'],
+    ['order id with a dot', (d) => ({ ...d, orderId: 'ORD.1' }), 'orderId'],
+    ['order id with a space', (d) => ({ ...d, orderId: 'ORD 1' }), 'orderId'],
+    [
+      'merchant reference id with a colon',
+      (d) => ({ ...d, merchantReferenceId: 'ref:1' }),
+      'merchantReferenceId',
+    ],
     ['items not a list', (d) => ({ ...d, items: undefined as never }), 'items'],
     ['ftp callback', (d) => ({ ...d, callbackUrl: 'ftp://shop.test/cb' }), 'callbackUrl'],
     ['missing return url', (d) => ({ ...d, returnUrl: '' }), 'returnUrl'],

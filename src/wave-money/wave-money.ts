@@ -117,7 +117,9 @@ export interface WaveMoneyItem {
  * A Wave Money payment request. Wave only accepts whole kyat (MMK).
  */
 export interface WaveMoneyPaymentData {
-  /** Your order id. One order can have several payment attempts. */
+  /**
+   * Your order id: letters, digits, `_` and `-`. One order can have several payment attempts.
+   */
   orderId: string;
   /** The URL Wave posts the result to (`backend_result_url`). */
   callbackUrl: string;
@@ -130,8 +132,8 @@ export interface WaveMoneyPaymentData {
   /** The total in whole kyat. Leave it unset to charge the sum of the items. */
   amount?: AmountInput | undefined;
   /**
-   * The unique id of this attempt; Wave rejects a reused one. `initiate()` fills it with a random
-   * id when empty, so store it afterwards: Wave's callback may omit `orderId` but always carries
+   * The unique id of this attempt (letters, digits, `_` and `-`); Wave rejects a reused one.
+   * `initiate()` fills it with a random id when empty, so store it afterwards: Wave's callback may omit `orderId` but always carries
    * this.
    */
   merchantReferenceId?: string | undefined;
@@ -156,6 +158,13 @@ const STATUSES: Readonly<Record<string, PaymentStatus>> = {
   TRANSACTION_TIMED_OUT: 'expired',
   SCHEDULER_TRANSACTION_TIMED_OUT: 'expired',
 };
+
+/** The callback's `amount`: a non-negative decimal. */
+const AMOUNT = /^\d+(\.\d+)?$/;
+
+/** `orderId` and `merchantReferenceId`, in a payment and in its callback. */
+const ID = /^[A-Za-z0-9_-]+$/;
+const ID_DESCRIPTION = 'letters, digits, underscores and dashes';
 
 const CALLBACK_FIELDS = [
   'status',
@@ -217,6 +226,7 @@ export class WaveMoney {
     const items: readonly WaveMoneyItem[] = Array.isArray(data.items) ? data.items : [];
     const validator = new Validator()
       .required('orderId', data.orderId)
+      .pattern('orderId', data.orderId, ID, ID_DESCRIPTION)
       .required('callbackUrl', data.callbackUrl)
       .url('callbackUrl', data.callbackUrl)
       .required('returnUrl', data.returnUrl)
@@ -224,6 +234,7 @@ export class WaveMoney {
       .required('description', data.description)
       .when(items.length === 0, 'items', 'The items field must have at least one item.')
       .string('merchantReferenceId', data.merchantReferenceId)
+      .pattern('merchantReferenceId', data.merchantReferenceId, ID, ID_DESCRIPTION)
       .string('merchantName', data.merchantName)
       .when(
         typeof data.merchantName === 'string' && data.merchantName.trim() === '',
@@ -339,7 +350,10 @@ export class WaveMoney {
   /**
    * Verifies Wave's callback. Only `PAYMENT_CONFIRMED` means the customer paid. `orderId` falls
    * back to `merchantReferenceId` when it is missing, null or empty, because Wave marks `orderId` as
-   * optional. A hashed field holding an object or array fails verification.
+   * optional. A hashed field holding an object or array fails verification, and so does a callback
+   * whose `amount` is not a non-negative decimal, which has neither id, or whose `orderId` or
+   * `merchantReferenceId` holds anything but letters, digits, `_` and `-`: Wave hashes the values
+   * with no separator, so only well-formed values pin each one down.
    */
   handleCallback(request: CallbackRequest): PaymentCallback {
     const payload = losslessBody(request);
@@ -348,10 +362,17 @@ export class WaveMoney {
     );
     const hashValue = payload.hashValue;
 
+    // Wave concatenates the values with no separator, so a matching hash alone does not pin where
+    // one value ends and the next begins: the ids and the amount must also be well formed.
+    const orderId = get(payload, 'orderId');
+    const merchantReferenceId = get(payload, 'merchantReferenceId');
     if (
       typeof hashValue !== 'string' ||
       CALLBACK_FIELDS.some((field) => isNested(payload[field])) ||
-      !safeEqual(expected, hashValue.toLowerCase())
+      !safeEqual(expected, hashValue.toLowerCase()) ||
+      !AMOUNT.test(get(payload, 'amount')) ||
+      (orderId === '' && merchantReferenceId === '') ||
+      [orderId, merchantReferenceId].some((id) => id !== '' && !ID.test(id))
     ) {
       throw new SignatureVerificationError(
         'Wave Money callback hash verification failed.',
@@ -361,7 +382,7 @@ export class WaveMoney {
 
     const gatewayStatus = trimmed(payload, 'status');
     return new PaymentCallback({
-      orderId: get(payload, 'orderId') || get(payload, 'merchantReferenceId'),
+      orderId: orderId || merchantReferenceId,
       status: resolveStatus(STATUSES, gatewayStatus),
       gatewayStatus,
       gatewayReference: optional(payload, 'transactionId'),
