@@ -216,13 +216,15 @@ export class CyberSource {
    */
   handleCallback(request: CallbackRequest): PaymentCallback {
     const payload = losslessInput(request);
-    const expected = this.sign(payload);
     const names = signedNames(payload);
+    const expected = wellFormed(names) ? this.sign(payload) : undefined;
+    const decision = trimmed(payload, 'decision').toUpperCase();
     if (
       expected === undefined ||
       !safeEqual(expected, get(payload, 'signature')) ||
       !names.includes('decision') ||
-      !names.includes('req_reference_number')
+      !names.includes('req_reference_number') ||
+      !Object.prototype.hasOwnProperty.call(STATUSES, decision)
     ) {
       throw new SignatureVerificationError(
         'CyberSource callback signature verification failed.',
@@ -237,7 +239,6 @@ export class CyberSource {
       setKey(signed, name, payload[name]);
     }
 
-    const decision = trimmed(signed, 'decision').toUpperCase();
     return new PaymentCallback({
       orderId: get(signed, 'req_reference_number'),
       status: resolveStatus(STATUSES, decision),
@@ -258,15 +259,25 @@ export class CyberSource {
       }
       pairs.push(`${name}=${value}`);
     }
-    return pairs.length === 0
-      ? undefined
-      : hmacSha256Base64(this.config.secretKey, pairs.join(','));
+    return hmacSha256Base64(this.config.secretKey, pairs.join(','));
   }
 }
 
 /** The names listed in `signed_field_names`, in order. */
 function signedNames(fields: Readonly<Record<string, unknown>>): string[] {
-  return get(fields, 'signed_field_names')
-    .split(',')
-    .filter((name) => name !== '');
+  return get(fields, 'signed_field_names').split(',');
+}
+
+/**
+ * Whether a callback's `signed_field_names` can be trusted. The signed string joins `name=value`
+ * pairs with ",", and a signed value may contain both, so a sender could re-partition a genuine
+ * signed string into other fields (e.g. a `decision=ACCEPT` typed into a billing name). The list
+ * must sign itself and hold each name once, with no empty name and no "=" or "," in a name.
+ */
+function wellFormed(names: readonly string[]): boolean {
+  return (
+    names.includes('signed_field_names') &&
+    new Set(names).size === names.length &&
+    names.every((name) => name !== '' && !name.includes('='))
+  );
 }

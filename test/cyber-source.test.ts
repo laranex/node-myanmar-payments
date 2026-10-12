@@ -116,7 +116,6 @@ describe('CyberSource', () => {
     ['ERROR', 'failed'],
     ['CANCEL', 'canceled'],
     ['accept', 'successful'],
-    ['NEW', 'unknown'],
   ])(
     'reads the order id from req_reference_number and maps the decision %s',
     (decision, status) => {
@@ -202,6 +201,139 @@ describe('CyberSource', () => {
     const result = gateway().handleCallback(new CallbackRequest({ body: form.toString() }));
     expect(result).toMatchObject({ amount: '5.00', gatewayReference: undefined });
     expect(result.raw).toEqual(fields);
+  });
+
+  it('rejects a decision outside the documented values', () => {
+    for (const decision of ['NEW', '', 'ACCEPTED']) {
+      expect(() => gateway().handleCallback(callback({ decision }))).toThrow(
+        SignatureVerificationError,
+      );
+    }
+  });
+
+  it.each([
+    ['without signed_field_names', 'decision,req_reference_number,transaction_id,auth_amount'],
+    [
+      'with a repeated name',
+      'decision,req_reference_number,decision,transaction_id,signed_field_names',
+    ],
+    ['with an empty name', 'decision,req_reference_number,,transaction_id,signed_field_names'],
+    ['with a trailing comma', 'decision,req_reference_number,signed_field_names,'],
+    ['with "=" in a name', 'decision,req_reference_number,a=b,signed_field_names'],
+  ])('rejects a signed field list %s', (_name, names) => {
+    const fields: Record<string, string> = {
+      decision: 'ACCEPT',
+      req_reference_number: 'ORDER-1',
+      transaction_id: '7000',
+      auth_amount: '1000.00',
+      'a=b': 'c',
+      signed_field_names: names,
+    };
+    fields.signature = signature(fields);
+    expect(
+      caught(() =>
+        gateway().handleCallback(
+          new CallbackRequest({ body: new URLSearchParams(fields).toString() }),
+        ),
+      ),
+    ).toBeInstanceOf(SignatureVerificationError);
+  });
+
+  it.each([
+    [
+      'a list that leaves out signed_field_names',
+      [
+        'transaction_id',
+        'decision',
+        'req_reference_number',
+        'req_amount',
+        'req_bill_to_forename',
+        'signed_field_names',
+      ],
+      (genuine: Record<string, string>) => ({
+        transaction_id: '111,decision=DECLINE',
+        req_reference_number: 'ORDER-1',
+        req_amount: '1000',
+        req_bill_to_forename: 'x',
+        decision: `ACCEPT,signed_field_names=${genuine.signed_field_names}`,
+        signed_field_names: [
+          'transaction_id',
+          'req_reference_number',
+          'req_amount',
+          'req_bill_to_forename',
+          'decision',
+        ].join(','),
+        signature: genuine.signature as string,
+      }),
+    ],
+    [
+      'a list that hides signed_field_names in another value',
+      [
+        'transaction_id',
+        'decision',
+        'req_reference_number',
+        'req_amount',
+        'req_bill_to_forename',
+        'req_bill_to_surname',
+        'signed_field_names',
+        'signed_date_time',
+      ],
+      (genuine: Record<string, string>) => ({
+        transaction_id: '111,decision=DECLINE',
+        req_reference_number: 'ORDER-1',
+        req_amount: '1000',
+        req_bill_to_forename: 'x',
+        decision: 'ACCEPT',
+        req_bill_to_surname: `y,signed_field_names=${genuine.signed_field_names}`,
+        signed_date_time: genuine.signed_date_time as string,
+        signed_field_names: [
+          'transaction_id',
+          'req_reference_number',
+          'req_amount',
+          'req_bill_to_forename',
+          'decision',
+          'req_bill_to_surname',
+          'signed_date_time',
+        ].join(','),
+        signature: genuine.signature as string,
+      }),
+    ],
+  ])('rejects a declined payment re-partitioned to read ACCEPT: %s', (_name, names, forge) => {
+    // The customer typed "x,decision=ACCEPT" as their first name; CyberSource echoes it signed.
+    const genuine: Record<string, string> = {
+      transaction_id: '111',
+      decision: 'DECLINE',
+      req_reference_number: 'ORDER-1',
+      req_amount: '1000',
+      req_bill_to_forename: 'x,decision=ACCEPT',
+      req_bill_to_surname: 'y',
+      signed_date_time: '2026-10-12T00:00:00Z',
+      signed_field_names: names.join(','),
+    };
+    genuine.signature = signature(genuine);
+    const declined = gateway().handleCallback(
+      new CallbackRequest({ body: new URLSearchParams(genuine).toString() }),
+    );
+    expect(declined.status).toBe('failed');
+
+    const forged = forge(genuine);
+    const forgedNames = forged.signed_field_names.split(',');
+    // The forged list signs the very same string, so only the list rules can catch it.
+    expect(
+      hmacBase64(
+        forgedNames
+          .map((name) => `${name}=${(forged as Record<string, string>)[name] ?? ''}`)
+          .join(','),
+        'secret',
+      ),
+    ).toBe(genuine.signature);
+    expect(
+      caught(() =>
+        gateway().handleCallback(
+          new CallbackRequest({ body: new URLSearchParams(forged).toString() }),
+        ),
+      ),
+    ).toBeInstanceOf(SignatureVerificationError);
   });
 
   it('rejects a tampered callback', () => {
