@@ -58,12 +58,12 @@ const payment = await kbz.pwa({
 res.writeHead(302, { Location: payment.url }).end();
 ```
 
-- `RedirectPayment` (`url`) from `kbz.pwa(data)` and `wave.initiate(data)`. Wave fills `data.merchantReferenceId` when empty; store it. Pass `merchantName` or `timeToLiveSeconds` in Wave's payment data to override the configured `WAVE_MONEY_MERCHANT_NAME` or `WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS` for that one payment (the merchant name setting stays required).
-- `FormPayment` from `aya.initiate(data)` and `cyberSource.initiate(data)` (no network call): send `payment.toHtml()` as an auto-submitting page, or render `action`, `fields` and `enctype` yourself.
+- `RedirectPayment` (`url`) from `kbz.pwa(data)` and `wave.initiate(data)`. Wave's `orderId` and `merchantReferenceId` take only letters, digits, `_` and `-`; Wave fills `data.merchantReferenceId` when empty; store it. Pass `merchantName` or `timeToLiveSeconds` in Wave's payment data to override the configured `WAVE_MONEY_MERCHANT_NAME` or `WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS` for that one payment (the merchant name setting stays required).
+- `FormPayment` from `aya.initiate(data)` and `cyberSource.initiate(data)` (no network call): send `payment.toHtml()` as an auto-submitting page (`payment.toHtml(nonce)` adds a CSP nonce to its inline script), or render `action`, `fields` and `enctype` yourself.
 - `QrPayment` from `kbz.qr(data)` (encode `qrString`) and `yoma.initiate(data)` (`qrImageDataUri()`, `expiresAt`, `reference`). A Yoma QR lives `YomaMmqr.QR_LIFETIME_SECONDS` (120); renew it with `yoma.renewQr(orderId)`.
 - `AppPayment` from `kbz.app(data)`: `res.json(payment)` sends `orderId`, `orderInfo`, `sign` and `signType` to your mobile app.
 
-AYA needs a channel: `await aya.services()` lists `AyaPayService` entries (`key`, `supports(method)`), then `aya.initiate({ orderId: 'ORDER123', amount: 1000, channel: 'kbz_pay', method: AyaPayMethod.Qr })`. Every network method takes `{ signal }` as its last argument.
+AYA needs a channel: `await aya.services()` lists `AyaPayService` entries (`key`, `supports(method)`), then `aya.initiate({ orderId: 'ORDER123', amount: 1000, channel: 'kbz_pay', method: AyaPayMethod.Qr })`. AYA's `orderId`, `description` and `userRefs` must not contain `:`. Every network method takes `{ signal }` as its last argument.
 
 CyberSource has no payment defaults: pass `currency` (e.g. `'MMK'`), `transactionType` (e.g. `CyberSourceTransactionType.Sale`) and `locale` (e.g. `'en-us'`) on every `cyberSource.initiate(data)`.
 
@@ -88,6 +88,8 @@ try {
 ```
 
 - Give the package the raw body: in Express use `express.raw({ type: '*/*' })` on the callback route; in Fastify keep the body as a string (`parseAs: 'string'`) and build `CallbackRequest.from({ body, headers, query })`.
+- `fromNodeRequest` and `fromWebRequest` read at most 64 KiB (`MAX_CALLBACK_BODY_BYTES`; change it with `{ maxBodyBytes }`); a larger body throws a `PaymentError`.
+- Yoma signs only `orderNumber` and `status`, so its callback has no `amount`: confirm the payment with `yoma.status(reference)` before fulfilling.
 - Check AYA's browser return with `aya.verifyRedirect(request)`.
 - For production, store the verified callback, acknowledge immediately, then process it once in the background.
 
