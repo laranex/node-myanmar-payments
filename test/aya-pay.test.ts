@@ -270,9 +270,9 @@ describe('AyaPay', () => {
 
   it('accepts the correctly spelled currencyCode and numeric values as sent', () => {
     const json =
-      '{"merchOrderId":"ORD123456","tranId":"T1","amount":1000.50,"currencyCode":104,"statusCode":"00","dateTime":"x"}';
+      '{"merchOrderId":"ORD123456","tranId":"T1","amount":1000.50,"currencyCode":104,"statusCode":"00","dateTime":"2026-10-07 10:00:00"}';
     const callback = gateway().handleCallback(
-      CallbackRequest.fromJson(signed(json, 'ORD123456:T1:1000.50:104:00:x')),
+      CallbackRequest.fromJson(signed(json, 'ORD123456:T1:1000.50:104:00:2026-10-07 10:00:00')),
     );
     expect(callback.amount).toBe('1000.50');
   });
@@ -286,8 +286,9 @@ describe('AyaPay', () => {
   });
 
   it('reads a base64 payload whose + became a space in an unencoded query string', () => {
-    const json = '{"merchOrderId":"ORD>>>","statusCode":"00"}';
-    const query = signed(json, 'ORD>>>:00');
+    const json =
+      '{"merchOrderId":"ORD>>>","tranId":"T1","amount":"1000","currencyCode":"104","statusCode":"00"}';
+    const query = signed(json, 'ORD>>>:T1:1000:104:00');
     expect(query.payload).toContain('+');
     const callback = gateway().verifyRedirect(
       new CallbackRequest({ query: `payload=${query.payload}&checkSum=${query.checkSum}` }),
@@ -333,6 +334,106 @@ describe('AyaPay', () => {
     );
   });
 
+  it('rejects a genuine failed payload re-split to read a successful status', () => {
+    // AYA signs the values joined with ":", so a genuine failed payload whose time ends in ":00"
+    // carries the text "02:2026-10-07 10:15:00". Moving the boundaries reads status "00" out of it.
+    const genuine = {
+      merchOrderId: 'ORD123456',
+      tranId: 'T1',
+      amount: '1000',
+      currencyCode: '104',
+      statusCode: '02',
+      dateTime: '2026-10-07 10:15:00',
+    };
+    const checksum = 'ORD123456:T1:1000:104:02:2026-10-07 10:15:00';
+    expect(
+      gateway().handleCallback(CallbackRequest.fromJson(signed(genuine, checksum))).status,
+    ).toBe('failed');
+
+    const forged = {
+      merchOrderId: 'ORD123456',
+      tranId: 'T1',
+      amount: '1000',
+      currencyCode: '104:02:2026-10-07 10:15',
+      statusCode: '00',
+    };
+    expect(forged).not.toEqual(genuine);
+    const body = { ...signed(forged, checksum), checkSum: signed(genuine, checksum).checkSum };
+    for (const verify of [
+      () => gateway().handleCallback(CallbackRequest.fromJson(body)),
+      () => gateway().verifyRedirect(new CallbackRequest({ query: body })),
+    ]) {
+      expect(caught(verify)).toBeInstanceOf(SignatureVerificationError);
+    }
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['a colon in a signed value', { description: 'a:b' }],
+    ['a colon in the order id', { merchOrderId: 'ORD:1' }],
+    ['a dateTime in another format', { dateTime: '2026-10-07T10:00:00' }],
+    ['a missing order id', { merchOrderId: undefined }],
+    ['an empty order id', { merchOrderId: '' }],
+    ['a missing transaction id', { tranId: undefined }],
+    ['a null transaction id', { tranId: null }],
+    ['a missing amount', { amount: undefined }],
+    ['a negative amount', { amount: '-1' }],
+    ['an amount with two dots', { amount: '1.0.0' }],
+    ['an amount with a sign', { amount: '+1000' }],
+    ['a missing currency code', { currenyCode: undefined }],
+    ['another currency code', { currenyCode: '840' }],
+    ['a missing status code', { statusCode: undefined }],
+    ['a three digit status code', { statusCode: '000' }],
+    ['a padded status code', { statusCode: ' 00' }],
+  ])('rejects a correctly signed payload with %s', (_name, change) => {
+    const { payload } = vector();
+    // An undefined value leaves the field out of the payload.
+    const changed = Object.fromEntries(
+      Object.entries({ ...payload, ...change }).filter(([, value]) => value !== undefined),
+    );
+    const checksum = [
+      'merchOrderId',
+      'tranId',
+      'amount',
+      'currenyCode',
+      'statusCode',
+      'paymentCardNumber',
+      'paymentMobileNumber',
+      'cardTypeName',
+      'cardExpiryDate',
+      'nameOnCard',
+      'approvalCode',
+      'tranRef',
+      'userRef1',
+      'userRef2',
+      'userRef3',
+      'userRef4',
+      'userRef5',
+      'description',
+      'dateTime',
+    ]
+      .filter((field) => field in changed)
+      .map((field) => (changed[field] === null ? '' : String(changed[field])))
+      .join(':');
+    const error = caught(() =>
+      gateway().handleCallback(CallbackRequest.fromJson(signed(changed, checksum))),
+    );
+    expect(error).toBeInstanceOf(SignatureVerificationError);
+  });
+
+  it('accepts a payload without a dateTime, or with an empty one', () => {
+    const { payload, checksum } = vector();
+    const { dateTime: _dateTime, ...rest } = payload;
+    const without = checksum.replace(/:2026-10-07 10:00:00$/, '');
+    expect(gateway().handleCallback(CallbackRequest.fromJson(signed(rest, without))).status).toBe(
+      'successful',
+    );
+    expect(
+      gateway().handleCallback(
+        CallbackRequest.fromJson(signed({ ...rest, dateTime: '' }, `${without}:`)),
+      ).status,
+    ).toBe('successful');
+  });
+
   it('verifies the enquiry response payload', async () => {
     const { payload, checksum } = vector();
     const fake = new FakeFetch({
@@ -355,10 +456,12 @@ describe('AyaPay', () => {
     });
   });
 
-  it('falls back to the queried order id and rejects an unsigned enquiry', async () => {
-    const json = '{"tranId":"T1","statusCode":"01"}';
-    const fake = new FakeFetch({ body: { status: '00', data: signed(json, 'T1:01') } });
-    expect((await gateway(fake).status('ORD999999')).orderId).toBe('ORD999999');
+  it('rejects an enquiry without an order id and an unsigned enquiry', async () => {
+    const json = '{"tranId":"T1","amount":"1000","currenyCode":"104","statusCode":"01"}';
+    const fake = new FakeFetch({ body: { status: '00', data: signed(json, 'T1:1000:104:01') } });
+    expect(await rejected(gateway(fake).status('ORD999999'))).toBeInstanceOf(
+      SignatureVerificationError,
+    );
 
     const error = await rejected(
       gateway(new FakeFetch({ body: { status: '00', data: 'x' } })).status('ORD1'),
@@ -402,6 +505,9 @@ describe('AyaPay', () => {
     ['missing amount', { amount: undefined as never }, 'amount'],
     ['decimal amount', { amount: Amount.parse('1000.50') }, 'amount'],
     ['relative return url', { returnUrl: '/done' }, 'returnUrl'],
+    ['colon in the order id', { orderId: 'ORD:123456' }, 'orderId'],
+    ['colon in the description', { description: 'Order: 1' }, 'description'],
+    ['colon in a user ref', { userRefs: ['ok', 'cart:9'] }, 'userRefs'],
   ])('validates against AYA rules: %s', (_name, change, field) => {
     const error = caught(() => AyaPay.validate({ ...order, ...change }));
     expect(error).toBeInstanceOf(InvalidPaymentDataError);

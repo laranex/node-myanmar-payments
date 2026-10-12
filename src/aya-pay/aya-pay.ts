@@ -33,7 +33,7 @@ import {
 import { FormPayment, type FormField } from '../core/results.js';
 import { resolveStatus, type PaymentStatus } from '../core/status.js';
 import { toAmount, Validator } from '../core/validate.js';
-import { get, isNested, object, optional, scalarString, trimmed } from '../core/values.js';
+import { get, isNested, object, optional, scalarString } from '../core/values.js';
 
 /** The settings of {@link AyaPayConfig}. */
 export interface AyaPayConfigOptions {
@@ -192,6 +192,20 @@ const PAYLOAD_FIELDS = [
   'dateTime',
 ] as const;
 
+/** AYA's `dateTime` format, e.g. `2026-10-07 10:00:00`. */
+const DATE_TIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+
+/** The fields a verified payload must carry, and the format of each. */
+const REQUIRED_FORMATS: readonly (readonly [(typeof PAYLOAD_FIELDS)[number], RegExp])[] = [
+  ['merchOrderId', /^[^:]+$/],
+  ['tranId', /^[^:]+$/],
+  ['amount', /^\d+(\.\d+)?$/],
+  ['currencyCode', new RegExp(`^${CURRENCY_MMK}$`)],
+  ['statusCode', /^\d{2}$/],
+];
+
+const COLON_MESSAGE = (field: string): string => `The ${field} field must not contain a colon (:).`;
+
 /**
  * The AYA Payment Gateway (APG): one hosted checkout for AYA Pay, other wallets and cards, with
  * channel listing, status enquiry and verified callbacks.
@@ -226,7 +240,9 @@ export class AyaPay {
       )
       .string('returnUrl', data.returnUrl)
       .url('returnUrl', data.returnUrl)
+      .when(hasColon(data.orderId), 'orderId', COLON_MESSAGE('orderId'))
       .string('description', data.description)
+      .when(hasColon(data.description), 'description', COLON_MESSAGE('description'))
       .when(
         userRefs !== undefined &&
           (!Array.isArray(userRefs) || userRefs.some((ref) => typeof ref !== 'string')),
@@ -237,6 +253,11 @@ export class AyaPay {
         Array.isArray(userRefs) && userRefs.length > 5,
         'userRefs',
         'The userRefs field must not have more than 5 items.',
+      )
+      .when(
+        Array.isArray(userRefs) && userRefs.some((ref) => hasColon(ref)),
+        'userRefs',
+        COLON_MESSAGE('userRefs'),
       )
       .validate();
   }
@@ -332,9 +353,9 @@ export class AyaPay {
     );
 
     const payload = this.verifiedPayload(object(body, 'data') ?? {}, 'enquiry response');
-    const statusCode = trimmed(payload, 'statusCode');
+    const statusCode = get(payload, 'statusCode');
     return new PaymentStatusResult({
-      orderId: optional(payload, 'merchOrderId') || orderId,
+      orderId: get(payload, 'merchOrderId'),
       status: resolveStatus(STATUSES, statusCode),
       gatewayStatus: statusCode,
       gatewayReference: optional(payload, 'tranId'),
@@ -371,20 +392,34 @@ export class AyaPay {
       throw fail();
     }
 
+    // The checksum joins the values with ":", so a value containing ":" could move a signed
+    // boundary (e.g. read a failed status out of a genuine payload's time). Only `dateTime`, the
+    // last field, may hold one, and only in AYA's own format.
     const parts: string[] = [];
     for (const field of PAYLOAD_FIELDS) {
-      const key = field === 'currencyCode' && 'currenyCode' in payload ? 'currenyCode' : field;
+      const key = currencyKey(payload, field);
       if (Object.prototype.hasOwnProperty.call(payload, key)) {
         // A nested value is never signed, so a payload carrying one is rejected.
         if (isNested(payload[key])) {
           throw fail();
         }
-        parts.push(scalarString(payload[key]) ?? '');
+        const value = scalarString(payload[key]) ?? '';
+        if (field === 'dateTime' ? value !== '' && !DATE_TIME.test(value) : value.includes(':')) {
+          throw fail();
+        }
+        parts.push(value);
       }
     }
 
     if (!safeEqual(this.checksum(parts), get(input, 'checkSum').toLowerCase())) {
       throw fail();
+    }
+
+    for (const [field, format] of REQUIRED_FORMATS) {
+      const value = scalarString(payload[currencyKey(payload, field)]);
+      if (value === undefined || !format.test(value)) {
+        throw fail();
+      }
     }
     return payload;
   }
@@ -425,7 +460,7 @@ export class AyaPay {
 }
 
 function toCallback(payload: LosslessObject): PaymentCallback {
-  const statusCode = trimmed(payload, 'statusCode');
+  const statusCode = get(payload, 'statusCode');
   return new PaymentCallback({
     orderId: get(payload, 'merchOrderId'),
     status: resolveStatus(STATUSES, statusCode),
@@ -434,6 +469,15 @@ function toCallback(payload: LosslessObject): PaymentCallback {
     amount: optional(payload, 'amount'),
     raw: toPlainObject(payload),
   });
+}
+
+/** The key the payload uses for `field`: AYA spells `currencyCode` as `currenyCode`. */
+function currencyKey(payload: LosslessObject, field: string): string {
+  return field === 'currencyCode' && 'currenyCode' in payload ? 'currenyCode' : field;
+}
+
+function hasColon(value: unknown): boolean {
+  return typeof value === 'string' && value.includes(':');
 }
 
 function unixTime(): number {
