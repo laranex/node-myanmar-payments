@@ -15,6 +15,7 @@ import {
   FetchHttpClient,
   FormPayment,
   InvalidPaymentDataError,
+  MAX_CALLBACK_BODY_BYTES,
   MemoryTokenCache,
   PaymentCallback,
   PaymentError,
@@ -228,6 +229,127 @@ describe('CallbackRequest', () => {
   });
 });
 
+describe('CallbackRequest body limit', () => {
+  const tooLarge = `The callback request body is larger than ${MAX_CALLBACK_BODY_BYTES} bytes.`;
+
+  it('is 64 KiB', () => {
+    expect(MAX_CALLBACK_BODY_BYTES).toBe(65536);
+  });
+
+  it('reads a Node stream up to the limit and stops reading past it', async () => {
+    const exact = await CallbackRequest.fromNodeRequest(
+      nodeRequest('a'.repeat(MAX_CALLBACK_BODY_BYTES)),
+    );
+    expect(exact.rawBody.byteLength).toBe(MAX_CALLBACK_BODY_BYTES);
+
+    let pulled = 0;
+    const endless = Object.assign(
+      Readable.from(
+        (function* () {
+          for (;;) {
+            pulled++;
+            yield Buffer.alloc(16 * 1024, 'a');
+          }
+        })(),
+      ),
+      { headers: {}, url: '/' },
+    );
+    const error = await rejected(CallbackRequest.fromNodeRequest(endless));
+    expect(error).toBeInstanceOf(PaymentError);
+    expect((error as Error).message).toBe(tooLarge);
+    expect(pulled).toBeLessThan(10);
+  });
+
+  it('rejects a Node request whose Content-Length is over the limit before reading', async () => {
+    const error = await rejected(
+      CallbackRequest.fromNodeRequest(
+        nodeRequest('{}', { headers: { 'content-length': String(MAX_CALLBACK_BODY_BYTES + 1) } }),
+      ),
+    );
+    expect((error as Error).message).toBe(tooLarge);
+    const ok = await CallbackRequest.fromNodeRequest(
+      nodeRequest('{}', { headers: { 'content-length': ' 2 ' } }),
+    );
+    expect(ok.body).toBe('{}');
+    const odd = await CallbackRequest.fromNodeRequest(
+      nodeRequest('{}', { headers: { 'content-length': 'x' } }),
+    );
+    expect(odd.body).toBe('{}');
+  });
+
+  it('applies the limit to a body captured by middleware and takes another limit', async () => {
+    await expect(
+      CallbackRequest.fromNodeRequest(
+        nodeRequest('', { rawBody: Buffer.alloc(MAX_CALLBACK_BODY_BYTES + 1) }),
+      ),
+    ).rejects.toThrow(tooLarge);
+    await expect(
+      CallbackRequest.fromNodeRequest(nodeRequest('12345'), { maxBodyBytes: 4 }),
+    ).rejects.toThrow('The callback request body is larger than 4 bytes.');
+    expect(
+      (await CallbackRequest.fromNodeRequest(nodeRequest('1234'), { maxBodyBytes: 4 })).body,
+    ).toBe('1234');
+    for (const maxBodyBytes of [0, -1, 1.5, Number.NaN]) {
+      await expect(
+        CallbackRequest.fromNodeRequest(nodeRequest(''), { maxBodyBytes }),
+      ).rejects.toThrow(RangeError);
+    }
+  });
+
+  it('reads a Fetch request up to the limit', async () => {
+    const big = new Request('https://shop.test/cb', {
+      method: 'POST',
+      body: 'a'.repeat(MAX_CALLBACK_BODY_BYTES + 1),
+    });
+    await expect(CallbackRequest.fromWebRequest(big)).rejects.toThrow(tooLarge);
+    expect(await big.text()).toHaveLength(MAX_CALLBACK_BODY_BYTES + 1);
+
+    const declared = new Request('https://shop.test/cb', {
+      method: 'POST',
+      headers: { 'Content-Length': String(MAX_CALLBACK_BODY_BYTES + 1) },
+      body: '{}',
+    });
+    await expect(CallbackRequest.fromWebRequest(declared)).rejects.toThrow(tooLarge);
+
+    let pulled = 0;
+    const endless = new Request('https://shop.test/cb', {
+      method: 'POST',
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulled++;
+          controller.enqueue(new Uint8Array(16 * 1024));
+        },
+      }),
+      duplex: 'half',
+    } as RequestInit);
+    await expect(CallbackRequest.fromWebRequest(endless)).rejects.toThrow(tooLarge);
+    expect(pulled).toBeLessThan(10);
+
+    const exact = await CallbackRequest.fromWebRequest(
+      new Request('https://shop.test/cb', { method: 'POST', body: 'é'.repeat(4) }),
+      { maxBodyBytes: 8 },
+    );
+    expect(exact.body).toBe('éééé');
+    expect(exact.rawBody.byteLength).toBe(8);
+
+    const empty = await CallbackRequest.fromWebRequest(new Request('https://shop.test/cb?x=1'));
+    expect(empty).toMatchObject({ body: '', query: { x: '1' } });
+  });
+
+  it('checks a Fetch-like request that only offers text()', async () => {
+    const request = (text: string) => ({
+      url: 'https://shop.test/cb',
+      headers: new Headers(),
+      bodyUsed: false,
+      clone: () => ({ text: () => Promise.resolve(text) }),
+    });
+    expect((await CallbackRequest.fromWebRequest(request('abc'))).body).toBe('abc');
+    await expect(
+      CallbackRequest.fromWebRequest(request('abcd'), { maxBodyBytes: 3 }),
+    ).rejects.toThrow('The callback request body is larger than 3 bytes.');
+  });
+});
+
 describe('Acknowledgement', () => {
   it('defaults to an empty 200 text/plain response', () => {
     const ack = new Acknowledgement();
@@ -295,6 +417,18 @@ describe('results', () => {
     expect(new FormPayment({ orderId: 'O1', action: 'https://pay.test', fields: [] }).enctype).toBe(
       'application/x-www-form-urlencoded',
     );
+  });
+
+  it('adds an escaped CSP nonce to the inline script', () => {
+    const payment = new FormPayment({ orderId: 'O1', action: 'https://pay.test', fields: [] });
+    expect(payment.toHtml('r4nd0m')).toContain(
+      '<script nonce="r4nd0m">document.getElementById("payment-form").submit();</script>',
+    );
+    expect(payment.toHtml('"><x')).toContain('<script nonce="&#34;&gt;&lt;x">');
+    for (const none of [undefined, null, '']) {
+      expect(payment.toHtml(none)).toBe(payment.toHtml());
+      expect(payment.toHtml(none)).toContain('<script>document');
+    }
   });
 
   it('builds QR data URIs only when there is an image', () => {

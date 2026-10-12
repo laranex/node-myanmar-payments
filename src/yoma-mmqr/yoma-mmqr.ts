@@ -245,6 +245,10 @@ export class YomaMmqr {
   /**
    * Verifies Yoma's payment callback: HMAC-SHA256 of `orderNumber=..&status=..` keyed with the
    * order number followed by the webhook hash key.
+   *
+   * Yoma signs only `orderNumber` and `status`: the callback carries no amount, so the result's
+   * `amount` is `undefined`. Before fulfilling, confirm the payment with {@link YomaMmqr.status}
+   * (the amount is in its `raw` response) against the order you stored.
    */
   handleCallback(request: CallbackRequest): PaymentCallback {
     const payload = losslessBody(request);

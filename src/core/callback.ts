@@ -1,3 +1,4 @@
+import { PaymentError } from './errors.js';
 import { parseJsonObject, setKey, toPlainObject, type LosslessObject } from './json.js';
 import type { PaymentStatus } from './status.js';
 
@@ -13,6 +14,18 @@ export type QueryInput =
 
 /** A request body: text or raw bytes (a `Buffer` works). */
 export type BodyInput = string | Uint8Array | ArrayBuffer;
+
+/**
+ * The most body bytes {@link CallbackRequest.fromNodeRequest} and
+ * {@link CallbackRequest.fromWebRequest} read: 64 KiB, far above any gateway callback.
+ */
+export const MAX_CALLBACK_BODY_BYTES = 64 * 1024;
+
+/** How {@link CallbackRequest.fromNodeRequest} and {@link CallbackRequest.fromWebRequest} read. */
+export interface CallbackReadOptions {
+  /** The most body bytes to read. Defaults to {@link MAX_CALLBACK_BODY_BYTES}. */
+  maxBodyBytes?: number | undefined;
+}
 
 /** The parts of a gateway request. */
 export interface CallbackRequestInit {
@@ -42,7 +55,7 @@ export interface WebRequestLike {
   readonly url: string;
   readonly headers: Headers;
   readonly bodyUsed: boolean;
-  clone(): { text(): Promise<string> };
+  clone(): { text(): Promise<string>; readonly body?: ReadableStream<Uint8Array> | null };
 }
 
 /**
@@ -88,34 +101,57 @@ export class CallbackRequest {
    * parser). Reads the raw body from the stream, or from `rawBody`/`body` when middleware captured
    * it as text or bytes. When a body parser already consumed the stream, the parsed `body` is
    * encoded again as JSON or a form. Fastify parses the body before your handler runs: use
-   * {@link CallbackRequest.from} with the raw body there.
+   * {@link CallbackRequest.from} with the raw body there. A body over `maxBodyBytes` (64 KiB by
+   * default) throws a `PaymentError` without reading the rest of the stream.
    */
-  static async fromNodeRequest(request: NodeRequestLike): Promise<CallbackRequest> {
+  static async fromNodeRequest(
+    request: NodeRequestLike,
+    options: CallbackReadOptions = {},
+  ): Promise<CallbackRequest> {
+    const limit = bodyLimit(options);
     const headers = normalizeHeaders(request.headers);
     const query = new URL(request.url ?? '/', 'http://localhost').searchParams;
 
     let body: BodyInput | undefined = rawBody(request.rawBody) ?? rawBody(request.body);
     if (body === undefined) {
+      checkDeclaredLength(headers['content-length'], limit);
       const chunks: Uint8Array[] = [];
+      let size = 0;
       for await (const chunk of request) {
-        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : (chunk as Uint8Array));
+        const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : (chunk as Uint8Array);
+        size += bytes.byteLength;
+        checkSize(size, limit);
+        chunks.push(bytes);
       }
       body = Buffer.concat(chunks);
       if (body.length === 0 && isPlainObject(request.body)) {
         body = encodeParsedBody(request.body, headers['content-type'] ?? '');
       }
     }
+    checkSize(bodyBytes(body).byteLength, limit);
 
     return new CallbackRequest({ body, headers, query });
   }
 
   /**
    * Reads a Fetch API `Request` (Next.js route handlers, Hono, Bun, Deno, Cloudflare Workers). The
-   * body is read from a clone, so the request stays readable.
+   * body is read from a clone, so the request stays readable. A body over `maxBodyBytes` (64 KiB by
+   * default) throws a `PaymentError`.
    */
-  static async fromWebRequest(request: WebRequestLike): Promise<CallbackRequest> {
+  static async fromWebRequest(
+    request: WebRequestLike,
+    options: CallbackReadOptions = {},
+  ): Promise<CallbackRequest> {
+    const limit = bodyLimit(options);
+    let body: BodyInput = '';
+    if (!request.bodyUsed) {
+      checkDeclaredLength(request.headers.get('content-length') ?? undefined, limit);
+      const clone = request.clone();
+      body = clone.body ? await readStream(clone.body, limit) : await clone.text();
+      checkSize(bodyBytes(body).byteLength, limit);
+    }
     return new CallbackRequest({
-      body: request.bodyUsed ? '' : await request.clone().text(),
+      body,
       headers: request.headers,
       query: new URL(request.url).searchParams,
     });
@@ -337,6 +373,51 @@ function rawBody(value: unknown): BodyInput | undefined {
     return value;
   }
   return undefined;
+}
+
+function bodyLimit(options: CallbackReadOptions): number {
+  const limit = options.maxBodyBytes ?? MAX_CALLBACK_BODY_BYTES;
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    throw new RangeError('maxBodyBytes must be a whole number greater than 0.');
+  }
+  return limit;
+}
+
+/** Fails early when the declared `Content-Length` is already over the limit. */
+function checkDeclaredLength(contentLength: string | undefined, limit: number): void {
+  if (contentLength !== undefined && /^\d+$/.test(contentLength.trim())) {
+    checkSize(Number(contentLength.trim()), limit);
+  }
+}
+
+function checkSize(size: number, limit: number): void {
+  if (size > limit) {
+    throw tooLarge(limit);
+  }
+}
+
+function tooLarge(limit: number): PaymentError {
+  return new PaymentError(`The callback request body is larger than ${limit} bytes.`);
+}
+
+async function readStream(stream: ReadableStream<Uint8Array>, limit: number): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      return Buffer.concat(chunks);
+    }
+    size += value.byteLength;
+    if (size > limit) {
+      // Not awaited: cancelling one branch of a cloned request settles only once the other branch
+      // is cancelled too. A failed cancel is ignored; the error below is what matters.
+      reader.cancel().catch(Boolean);
+      throw tooLarge(limit);
+    }
+    chunks.push(value);
+  }
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

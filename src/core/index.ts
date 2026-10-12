@@ -3,10 +3,12 @@ export { MemoryTokenCache, type TokenCache } from './cache.js';
 export {
   Acknowledgement,
   CallbackRequest,
+  MAX_CALLBACK_BODY_BYTES,
   PaymentCallback,
   PaymentStatusResult,
   type AcknowledgementInit,
   type BodyInput,
+  type CallbackReadOptions,
   type CallbackRequestInit,
   type HeadersInput,
   type NodeRequestLike,

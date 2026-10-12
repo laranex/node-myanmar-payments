@@ -77,8 +77,13 @@ export class FormPayment {
     return Object.fromEntries(this.fields.map((field) => [field.name, field.value]));
   }
 
-  /** A complete HTML page that posts the form as soon as it loads. Every value is escaped. */
-  toHtml(): string {
+  /**
+   * A complete HTML page that posts the form as soon as it loads. Every value is escaped.
+   *
+   * @param nonce A Content Security Policy nonce for the inline script, added as `nonce="…"` when
+   *   set, so the page works under a `script-src 'nonce-…'` policy.
+   */
+  toHtml(nonce?: string | null): string {
     const inputs = this.fields
       .map(
         (field) =>
@@ -90,7 +95,8 @@ export class FormPayment {
       `<form id="payment-form" method="POST" action="${escapeHtml(this.action)}" enctype="${escapeHtml(this.enctype)}">` +
       inputs +
       '<noscript><button type="submit">Continue to payment</button></noscript></form>' +
-      '<script>document.getElementById("payment-form").submit();</script></body></html>'
+      `<script${nonce ? ` nonce="${escapeHtml(nonce)}"` : ''}>` +
+      'document.getElementById("payment-form").submit();</script></body></html>'
     );
   }
 }
