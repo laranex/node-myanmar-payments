@@ -89,7 +89,7 @@ try {
 
 - Give the package the raw body: in Express use `express.raw({ type: '*/*' })` on the callback route; in Fastify keep the body as a string (`parseAs: 'string'`) and build `CallbackRequest.from({ body, headers, query })`.
 - `fromNodeRequest` and `fromWebRequest` read at most 64 KiB (`MAX_CALLBACK_BODY_BYTES`; change it with `{ maxBodyBytes }`); a larger body throws a `PaymentError`.
-- Yoma signs only `orderNumber` and `status`, so its callback has no `amount`: confirm the payment with `yoma.status(reference)` before fulfilling.
+- Yoma signs only `orderNumber` and `status`, so its callback has no `amount`: match `orderNumber` to your stored order (its QR was generated for the stored amount) and, to confirm, call `yoma.status(reference)` with that order's QR reference (`refLabel`). The status result has no amount either, so trust your stored amount.
 - Check AYA's browser return with `aya.verifyRedirect(request)`.
 - For production, store the verified callback, acknowledge immediately, then process it once in the background.
 

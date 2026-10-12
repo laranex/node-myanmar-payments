@@ -247,8 +247,9 @@ export class YomaMmqr {
    * order number followed by the webhook hash key.
    *
    * Yoma signs only `orderNumber` and `status`: the callback carries no amount, so the result's
-   * `amount` is `undefined`. Before fulfilling, confirm the payment with {@link YomaMmqr.status}
-   * (the amount is in its `raw` response) against the order you stored.
+   * `amount` is `undefined`. Match `orderNumber` to your stored order (its QR was generated for the
+   * stored amount) and, to confirm, call {@link YomaMmqr.status} with that order's QR reference
+   * (`refLabel`). The status result has no amount either, so trust your stored amount.
    */
   handleCallback(request: CallbackRequest): PaymentCallback {
     const payload = losslessBody(request);
