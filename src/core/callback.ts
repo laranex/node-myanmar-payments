@@ -1,6 +1,7 @@
 import { PaymentError } from './errors.js';
 import { parseJsonObject, setKey, toPlainObject, type LosslessObject } from './json.js';
 import type { PaymentStatus } from './status.js';
+import { asciiTrim } from './values.js';
 
 /** Headers as a Fetch `Headers`, a Node-style object or `[name, value]` pairs. */
 export type HeadersInput =
@@ -183,7 +184,7 @@ export class CallbackRequest {
 
 /** The body as JSON (numbers kept exact) or a form, or `{}`. @internal */
 export function losslessBody(request: CallbackRequest): LosslessObject {
-  const body = request.body.trim();
+  const body = asciiTrim(request.body);
   if (body === '') {
     return {};
   }

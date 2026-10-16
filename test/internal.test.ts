@@ -137,6 +137,7 @@ describe('Validator', () => {
           .length('short', 'ab', 3, 10)
           .length('long', 'abcdefghijkl', 3, 10)
           .length('empty_skipped', '', 3, 10)
+          .length('exact', 'abcd', 3, 3)
           .max('note', '0123456789x', 10)
           .max('bytes', 'ကကက', 8)
           .pattern('digits', '12a', /^[0-9]+$/, 'digits')
@@ -152,6 +153,7 @@ describe('Validator', () => {
       missing: 'The missing field is required.',
       short: 'The short field must be between 3 and 10 characters.',
       long: 'The long field must be between 3 and 10 characters.',
+      exact: 'The exact field must be 3 characters.',
       note: 'The note field must not be greater than 10 characters.',
       bytes: 'The bytes field must not be greater than 8 characters.',
       digits: 'The digits field may only contain digits.',
@@ -193,15 +195,11 @@ describe('Validator', () => {
   it.each([
     ['unset', undefined, whole, 'The amount field is required.'],
     ['null', null, whole, 'The amount field is required.'],
+    ['negative number', -1, whole, 'The amount field must not be negative.'],
+    ['negative bigint', -1n, whole, 'The amount field must not be negative.'],
     [
-      'negative number',
-      -1,
-      whole,
-      'The amount field must be a non-negative number such as 1000 or 1000.50.',
-    ],
-    [
-      'negative bigint',
-      -1n,
+      'negative infinity',
+      -Infinity,
       whole,
       'The amount field must be a non-negative number such as 1000 or 1000.50.',
     ],
@@ -293,7 +291,9 @@ describe('environment', () => {
     const error = caught(() => requireSetting('kbz_pay', 'app_key', '  '));
     expect(error).toBeInstanceOf(ConfigurationError);
     expect(error).toMatchObject({ gateway: 'kbz_pay', key: 'app_key' });
-    expect(() => requireSetting('kbz_pay', 'app_key', 123)).toThrow(ConfigurationError);
+    expect(requireSetting('kbz_pay', 'app_key', 123)).toBe('123');
+    expect(() => requireSetting('kbz_pay', 'app_key', 1.5)).toThrow(ConfigurationError);
+    expect(() => requireSetting('kbz_pay', 'app_key', true)).toThrow(ConfigurationError);
     expect(trimUrl('https://api.test///')).toBe('https://api.test');
     expect(trimUrl('https://api.test')).toBe('https://api.test');
   });

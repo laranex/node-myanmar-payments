@@ -1,7 +1,7 @@
 import { type AmountInput } from '../core/amount.js';
 import { CallbackRequest, losslessInput, PaymentCallback } from '../core/callback.js';
 import { hmacSha256Base64, randomHex, safeEqual } from '../core/crypto.js';
-import { defaultEnv, envFirst, requireSetting, trimUrl, type EnvSource } from '../core/env.js';
+import { defaultEnv, envOptions, requireSetting, trimUrl, type EnvSource } from '../core/env.js';
 import { SignatureVerificationError } from '../core/errors.js';
 import { setKey, toPlainObject, type LosslessObject } from '../core/json.js';
 import { FormPayment, type FormField } from '../core/results.js';
@@ -49,11 +49,21 @@ export class CyberSourceConfig {
    * `CYBER_SOURCE_BASE_URL`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): CyberSourceConfig {
-    return new CyberSourceConfig({
-      profileId: envFirst(env, 'CYBER_SOURCE_PROFILE_ID'),
-      accessKey: envFirst(env, 'CYBER_SOURCE_ACCESS_KEY'),
-      secretKey: envFirst(env, 'CYBER_SOURCE_SECRET_KEY'),
-      baseUrl: envFirst(env, 'CYBER_SOURCE_BASE_URL'),
+    return new CyberSourceConfig(CyberSourceConfig.optionsFromEnv(env) as CyberSourceConfigOptions);
+  }
+
+  /**
+   * The options `fromEnv()` reads, without validating them: each value is trimmed of ASCII
+   * whitespace and an unset or blank variable is left out (`undefined`). Merge your own options
+   * over them per key; the constructor still validates the result, e.g.
+   * `new CyberSourceConfig({ ...CyberSourceConfig.optionsFromEnv(), ...options } as CyberSourceConfigOptions)`.
+   */
+  static optionsFromEnv(env: EnvSource = defaultEnv()): Partial<CyberSourceConfigOptions> {
+    return envOptions<CyberSourceConfigOptions>(env, {
+      profileId: 'CYBER_SOURCE_PROFILE_ID',
+      accessKey: 'CYBER_SOURCE_ACCESS_KEY',
+      secretKey: 'CYBER_SOURCE_SECRET_KEY',
+      baseUrl: 'CYBER_SOURCE_BASE_URL',
     });
   }
 }
@@ -207,23 +217,30 @@ export class CyberSource {
 
   /**
    * Verifies CyberSource's result post. The same check works for the browser post to your receipt
-   * page. Only the fields listed in `signed_field_names` are trusted: `decision` and
-   * `req_reference_number` must be signed, and unsigned fields are left out of the result.
+   * page. Only the fields listed in `signed_field_names` are trusted: unsigned fields are left out
+   * of the result. A malformed field list or a wrong signature fails with "CyberSource callback
+   * signature verification failed."; a signed post whose `decision` or `req_reference_number` is
+   * not signed, or whose decision is unknown, fails with "CyberSource callback is malformed.".
    */
   handleCallback(request: CallbackRequest): PaymentCallback {
     const payload = losslessInput(request);
     const names = signedNames(payload);
     const expected = wellFormed(names) ? this.sign(payload) : undefined;
+    if (expected === undefined || !safeEqual(expected, get(payload, 'signature'))) {
+      throw new SignatureVerificationError(
+        'CyberSource callback signature verification failed.',
+        toPlainObject(payload),
+      );
+    }
+
     const decision = trimmed(payload, 'decision').toUpperCase();
     if (
-      expected === undefined ||
-      !safeEqual(expected, get(payload, 'signature')) ||
       !names.includes('decision') ||
       !names.includes('req_reference_number') ||
       !Object.prototype.hasOwnProperty.call(STATUSES, decision)
     ) {
       throw new SignatureVerificationError(
-        'CyberSource callback signature verification failed.',
+        'CyberSource callback is malformed.',
         toPlainObject(payload),
       );
     }
@@ -240,7 +257,7 @@ export class CyberSource {
       status: resolveStatus(STATUSES, decision),
       gatewayStatus: decision,
       gatewayReference: optional(signed, 'transaction_id'),
-      amount: get(signed, 'auth_amount') || optional(signed, 'req_amount'),
+      amount: get(signed, 'auth_amount') || get(signed, 'req_amount') || undefined,
       raw: toPlainObject(signed),
     });
   }

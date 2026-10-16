@@ -39,7 +39,9 @@ export interface FetchHttpClientOptions {
 
 /**
  * The default {@link HttpClient}: the global `fetch` (or the one you pass) with the timeout you
- * give it. Gateways build one with their `timeoutSeconds` setting when you pass no client.
+ * give it. Redirects are never followed (`redirect: 'manual'`): a 3xx response is handled like any
+ * other non-2xx one. Gateways build one with their `timeoutSeconds` setting when you pass no
+ * client.
  */
 export class FetchHttpClient implements HttpClient {
   private readonly fetchFunction: FetchFunction | undefined;
@@ -59,6 +61,8 @@ export class FetchHttpClient implements HttpClient {
       method: request.method,
       headers: request.headers,
       body: request.body,
+      // Redirects are never followed, as in every Laranex SDK: a 3xx is a non-2xx response.
+      redirect: 'manual',
       signal: combineSignals(request.signal, this.timeoutMs) ?? null,
     });
     let body: string;

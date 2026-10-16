@@ -4,14 +4,18 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AyaPay,
+  AyaPayConfig,
   ConfigurationError,
   CyberSource,
+  CyberSourceConfig,
   KbzPay,
   KbzPayConfig,
   MemoryTokenCache,
   MyanmarPayments,
   WavePay,
+  WavePayConfig,
   YomaMmqr,
+  YomaMmqrConfig,
 } from '../src/index.js';
 import * as api from '../src/index.js';
 import { caught, FakeFetch, fixture, gatewayConfig } from './helpers.js';
@@ -143,5 +147,57 @@ describe('agent skill', () => {
       expect(skill).toContain(name);
       expect(api, name).toHaveProperty(name);
     }
+  });
+});
+
+describe('optionsFromEnv', () => {
+  const env = fixture<{ config: { env: Record<string, string> } }>('parity/vectors.json').config
+    .env;
+
+  it("reads each gateway's options from the environment without validating them", () => {
+    expect(
+      KbzPayConfig.optionsFromEnv({ KBZ_PAY_APP_ID: ' kp123\t', KBZ_PAY_APP_KEY: ' ' }),
+    ).toEqual({ appId: 'kp123' });
+    expect(KbzPayConfig.optionsFromEnv({ KBZ_PAY_TIME_TO_LIVE_IN_MINUTES: '500' })).toEqual({
+      timeToLiveMinutes: '500',
+    });
+    expect(WavePayConfig.optionsFromEnv({})).toEqual({});
+    expect(AyaPayConfig.optionsFromEnv({ MYANMAR_PAYMENTS_HTTP_TIMEOUT: 'abc' })).toEqual({
+      timeoutSeconds: 'abc',
+    });
+    expect(Object.keys(YomaMmqrConfig.optionsFromEnv(env))).toEqual([
+      'merchantId',
+      'clientId',
+      'clientSecret',
+      'webhookHashKey',
+      'apiVersion',
+      'webhookSecret',
+      'baseUrl',
+      'timeoutSeconds',
+    ]);
+    expect(CyberSourceConfig.optionsFromEnv(env)).toEqual({
+      profileId: env.CYBER_SOURCE_PROFILE_ID,
+      accessKey: env.CYBER_SOURCE_ACCESS_KEY,
+      secretKey: env.CYBER_SOURCE_SECRET_KEY,
+      baseUrl: env.CYBER_SOURCE_BASE_URL,
+    });
+  });
+
+  it('builds the same configuration as fromEnv, and merges per key', () => {
+    for (const config of [KbzPayConfig, WavePayConfig, AyaPayConfig, YomaMmqrConfig]) {
+      expect(new (config as typeof KbzPayConfig)(config.optionsFromEnv(env) as never)).toEqual(
+        config.fromEnv(env),
+      );
+    }
+    const merged = new KbzPayConfig({
+      ...KbzPayConfig.optionsFromEnv(env),
+      appId: 'override',
+    } as never);
+    expect(merged.appId).toBe('override');
+    expect(merged.appKey).toBe(env.KBZ_PAY_APP_KEY);
+  });
+
+  it('reads process.env by default', () => {
+    expect(CyberSourceConfig.optionsFromEnv()).toBeTypeOf('object');
   });
 });

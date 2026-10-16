@@ -3,7 +3,7 @@ import { CallbackRequest, losslessBody, PaymentCallback } from '../core/callback
 import { hmacSha256Hex, queryEscape, randomHex, safeEqual } from '../core/crypto.js';
 import {
   defaultEnv,
-  envFirst,
+  envOptions,
   HTTP_TIMEOUT_VARIABLE,
   requireSeconds,
   requireSetting,
@@ -22,7 +22,7 @@ import { isLosslessObject, toPlainObject, type LosslessObject } from '../core/js
 import { RedirectPayment } from '../core/results.js';
 import { resolveStatus, type PaymentStatus } from '../core/status.js';
 import { toAmount, Validator } from '../core/validate.js';
-import { get, isNested, optional, scalarString, trimmed } from '../core/values.js';
+import { asciiTrim, get, isNested, optional, scalarString, trimmed } from '../core/values.js';
 
 /** The settings of {@link WavePayConfig}. */
 export interface WavePayConfigOptions {
@@ -98,14 +98,24 @@ export class WavePayConfig {
    * `MYANMAR_PAYMENTS_HTTP_TIMEOUT`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): WavePayConfig {
-    return new WavePayConfig({
-      merchantId: envFirst(env, 'WAVE_PAY_MERCHANT_ID'),
-      secretKey: envFirst(env, 'WAVE_PAY_SECRET_KEY'),
-      merchantName: envFirst(env, 'WAVE_PAY_MERCHANT_NAME'),
-      baseUrl: envFirst(env, 'WAVE_PAY_BASE_URL'),
-      baseRedirectUrl: envFirst(env, 'WAVE_PAY_BASE_REDIRECT_URL'),
-      timeToLiveSeconds: envFirst(env, 'WAVE_PAY_TIME_TO_LIVE_IN_SECONDS'),
-      timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
+    return new WavePayConfig(WavePayConfig.optionsFromEnv(env) as WavePayConfigOptions);
+  }
+
+  /**
+   * The options `fromEnv()` reads, without validating them: each value is trimmed of ASCII
+   * whitespace and an unset or blank variable is left out (`undefined`). Merge your own options
+   * over them per key; the constructor still validates the result, e.g.
+   * `new WavePayConfig({ ...WavePayConfig.optionsFromEnv(), ...options } as WavePayConfigOptions)`.
+   */
+  static optionsFromEnv(env: EnvSource = defaultEnv()): Partial<WavePayConfigOptions> {
+    return envOptions<WavePayConfigOptions>(env, {
+      merchantId: 'WAVE_PAY_MERCHANT_ID',
+      secretKey: 'WAVE_PAY_SECRET_KEY',
+      merchantName: 'WAVE_PAY_MERCHANT_NAME',
+      baseUrl: 'WAVE_PAY_BASE_URL',
+      baseRedirectUrl: 'WAVE_PAY_BASE_REDIRECT_URL',
+      timeToLiveSeconds: 'WAVE_PAY_TIME_TO_LIVE_IN_SECONDS',
+      timeoutSeconds: HTTP_TIMEOUT_VARIABLE,
     });
   }
 }
@@ -139,8 +149,8 @@ export interface WavePayPaymentData {
   description: string;
   /** The line items shown on Wave's page; at least one. */
   items: readonly WavePayItem[];
-  /** The total in whole kyat. Leave it unset to charge the sum of the items. */
-  amount?: AmountInput | undefined;
+  /** The total in whole kyat. Leave it unset (or `null`) to charge the sum of the items. */
+  amount?: AmountInput | null | undefined;
   /**
    * The unique id of this attempt, at most 100 characters (letters, digits, `_` and `-`); Wave
    * rejects a reused one. `initiate()` fills it with a random id when empty, so store it
@@ -197,7 +207,7 @@ const AMOUNT = /^\d+(\.\d+)?$/;
 
 /** `orderId` and `merchantReferenceId`, in a payment and in its callback. */
 const ID = /^[A-Za-z0-9_-]+$/;
-const ID_DESCRIPTION = 'letters, digits, underscores and dashes';
+const ID_DESCRIPTION = 'letters, numbers, underscores and dashes';
 
 const CALLBACK_FIELDS = [
   'status',
@@ -237,7 +247,7 @@ export class WavePay {
    * `undefined` when an item amount is missing, malformed or has decimals.
    */
   static resolvedAmount(data: Pick<WavePayPaymentData, 'amount' | 'items'>): Amount | undefined {
-    if (data.amount !== undefined) {
+    if (isSet(data.amount)) {
       return toAmount(data.amount);
     }
     if (!Array.isArray(data.items) || data.items.length === 0) {
@@ -275,7 +285,7 @@ export class WavePay {
       .pattern('merchantReferenceId', data.merchantReferenceId, ID, ID_DESCRIPTION)
       .string('merchantName', data.merchantName)
       .when(
-        typeof data.merchantName === 'string' && data.merchantName.trim() === '',
+        typeof data.merchantName === 'string' && asciiTrim(data.merchantName) === '',
         'merchantName',
         'The merchantName field is required.',
       )
@@ -298,7 +308,7 @@ export class WavePay {
         .amount(`items.${index}.amount`, item?.amount, { gateway: 'Wave Pay', maxDecimals: 0 });
     });
     const resolved = WavePay.resolvedAmount(data);
-    if (!(items.length > 0 && data.amount === undefined && resolved === undefined)) {
+    if (!(items.length > 0 && !isSet(data.amount) && resolved === undefined)) {
       validator.amount('amount', data.amount ?? resolved, {
         gateway: 'Wave Pay',
         maxDecimals: 0,
@@ -398,11 +408,12 @@ export class WavePay {
   /**
    * Verifies Wave's callback. Only `PAYMENT_CONFIRMED` means the customer paid. `orderId` falls
    * back to `merchantReferenceId` when it is missing, null or empty, as a safeguard: earlier Wave
-   * documents marked `orderId` optional. A hashed field holding an object or array fails
-   * verification, and so does a callback whose `amount` is not a non-negative decimal, which has
-   * neither id, or whose `orderId` or
-   * `merchantReferenceId` holds anything but letters, digits, `_` and `-`: Wave hashes the values
-   * with no separator, so only well-formed values pin each one down.
+   * documents marked `orderId` optional. A hashed field holding an object or array, a `hashValue`
+   * that is not a string and a wrong hash fail with "Wave Pay callback hash verification failed.".
+   * A correctly hashed callback whose `amount` is not a non-negative decimal, which has neither id,
+   * or whose `orderId` or `merchantReferenceId` holds anything but letters, digits, `_` and `-`
+   * fails with "Wave Pay callback is malformed.": Wave hashes the values with no separator, so only
+   * well-formed values pin each one down.
    */
   handleCallback(request: CallbackRequest): PaymentCallback {
     const payload = losslessBody(request);
@@ -411,20 +422,28 @@ export class WavePay {
     );
     const hashValue = payload.hashValue;
 
+    if (
+      typeof hashValue !== 'string' ||
+      CALLBACK_FIELDS.some((field) => isNested(payload[field])) ||
+      !safeEqual(expected, hashValue.toLowerCase())
+    ) {
+      throw new SignatureVerificationError(
+        'Wave Pay callback hash verification failed.',
+        toPlainObject(payload),
+      );
+    }
+
     // Wave concatenates the values with no separator, so a matching hash alone does not pin where
     // one value ends and the next begins: the ids and the amount must also be well formed.
     const orderId = get(payload, 'orderId');
     const merchantReferenceId = get(payload, 'merchantReferenceId');
     if (
-      typeof hashValue !== 'string' ||
-      CALLBACK_FIELDS.some((field) => isNested(payload[field])) ||
-      !safeEqual(expected, hashValue.toLowerCase()) ||
       !AMOUNT.test(get(payload, 'amount')) ||
       (orderId === '' && merchantReferenceId === '') ||
       [orderId, merchantReferenceId].some((id) => id !== '' && !ID.test(id))
     ) {
       throw new SignatureVerificationError(
-        'Wave Pay callback hash verification failed.',
+        'Wave Pay callback is malformed.',
         toPlainObject(payload),
       );
     }

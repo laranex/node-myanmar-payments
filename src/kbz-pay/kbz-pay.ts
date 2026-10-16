@@ -9,10 +9,12 @@ import {
 import { queryEscape, randomHex } from '../core/crypto.js';
 import {
   defaultEnv,
-  envFirst,
+  envOptions,
   HTTP_TIMEOUT_VARIABLE,
+  isUnset,
   requireSetting,
   resolveTimeout,
+  toInteger,
   trimUrl,
   type EnvSource,
 } from '../core/env.js';
@@ -27,7 +29,7 @@ import { toPlainObject, type LosslessObject } from '../core/json.js';
 import { AppPayment, QrPayment, RedirectPayment } from '../core/results.js';
 import { resolveStatus, type PaymentStatus } from '../core/status.js';
 import { toAmount, Validator } from '../core/validate.js';
-import { get, object, optional, trimmed } from '../core/values.js';
+import { asciiTrimEnd, get, object, optional, trimmed } from '../core/values.js';
 import { KbzPaySigner } from './signer.js';
 
 /** The settings of {@link KbzPayConfig}. */
@@ -65,15 +67,10 @@ export interface KbzPayConfigOptions {
 const TIME_TO_LIVE_REQUIREMENT = 'a whole number from 1 to 120';
 
 function resolveTimeToLive(value: unknown): number {
-  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+  if (isUnset(value)) {
     throw new ConfigurationError('kbz_pay', 'time_to_live_in_minutes');
   }
-  let minutes: number | undefined;
-  if (typeof value === 'number' && Number.isSafeInteger(value)) {
-    minutes = value;
-  } else if (typeof value === 'string' && /^[+-]?\d+$/.test(value.trim())) {
-    minutes = Number.parseInt(value.trim(), 10);
-  }
+  const minutes = toInteger(value);
   if (minutes === undefined || minutes < 1 || minutes > 120) {
     throw new ConfigurationError(
       'kbz_pay',
@@ -122,14 +119,24 @@ export class KbzPayConfig {
    * `MYANMAR_PAYMENTS_HTTP_TIMEOUT`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): KbzPayConfig {
-    return new KbzPayConfig({
-      appId: envFirst(env, 'KBZ_PAY_APP_ID'),
-      appKey: envFirst(env, 'KBZ_PAY_APP_KEY'),
-      merchantCode: envFirst(env, 'KBZ_PAY_MERCHANT_CODE'),
-      apiUrl: envFirst(env, 'KBZ_PAY_BASE_URL'),
-      pwaUrl: envFirst(env, 'KBZ_PAY_PWA_BASE_REDIRECT_URL'),
-      timeToLiveMinutes: envFirst(env, 'KBZ_PAY_TIME_TO_LIVE_IN_MINUTES'),
-      timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
+    return new KbzPayConfig(KbzPayConfig.optionsFromEnv(env) as KbzPayConfigOptions);
+  }
+
+  /**
+   * The options `fromEnv()` reads, without validating them: each value is trimmed of ASCII
+   * whitespace and an unset or blank variable is left out (`undefined`). Merge your own options
+   * over them per key; the constructor still validates the result, e.g.
+   * `new KbzPayConfig({ ...KbzPayConfig.optionsFromEnv(), ...options } as KbzPayConfigOptions)`.
+   */
+  static optionsFromEnv(env: EnvSource = defaultEnv()): Partial<KbzPayConfigOptions> {
+    return envOptions<KbzPayConfigOptions>(env, {
+      appId: 'KBZ_PAY_APP_ID',
+      appKey: 'KBZ_PAY_APP_KEY',
+      merchantCode: 'KBZ_PAY_MERCHANT_CODE',
+      apiUrl: 'KBZ_PAY_BASE_URL',
+      pwaUrl: 'KBZ_PAY_PWA_BASE_REDIRECT_URL',
+      timeToLiveMinutes: 'KBZ_PAY_TIME_TO_LIVE_IN_MINUTES',
+      timeoutSeconds: HTTP_TIMEOUT_VARIABLE,
     });
   }
 }
@@ -419,7 +426,7 @@ export class KbzPay {
       const message = optional(result, 'msg');
       throw new ApiError(
         code
-          ? `KBZ Pay ${endpoint} failed: [${code}] ${message ?? ''}`.trimEnd()
+          ? asciiTrimEnd(`KBZ Pay ${endpoint} failed: [${code}] ${message ?? ''}`)
           : `KBZ Pay ${endpoint} failed with HTTP ${response.status}.`,
         {
           gatewayCode: code,

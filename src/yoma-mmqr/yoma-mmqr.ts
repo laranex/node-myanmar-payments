@@ -9,7 +9,7 @@ import {
 import { hmacSha256Hex, safeEqual, sha256Hex } from '../core/crypto.js';
 import {
   defaultEnv,
-  envFirst,
+  envOptions,
   HTTP_TIMEOUT_VARIABLE,
   requireSetting,
   resolveTimeout,
@@ -28,7 +28,7 @@ import { toPlainObject, type LosslessObject } from '../core/json.js';
 import { QrPayment } from '../core/results.js';
 import { resolveStatus, type PaymentStatus } from '../core/status.js';
 import { toAmount, Validator } from '../core/validate.js';
-import { get, isNested, optional, trimmed } from '../core/values.js';
+import { asciiTrimEnd, get, isNested, optional, trimmed } from '../core/values.js';
 
 /** The settings of {@link YomaMmqrConfig}. */
 export interface YomaMmqrConfigOptions {
@@ -91,15 +91,25 @@ export class YomaMmqrConfig {
    * `YOMA_MMQR_BASE_URL` and `MYANMAR_PAYMENTS_HTTP_TIMEOUT`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): YomaMmqrConfig {
-    return new YomaMmqrConfig({
-      merchantId: envFirst(env, 'YOMA_MMQR_MERCHANT_ID'),
-      clientId: envFirst(env, 'YOMA_MMQR_CLIENT_ID'),
-      clientSecret: envFirst(env, 'YOMA_MMQR_CLIENT_SECRET'),
-      webhookHashKey: envFirst(env, 'YOMA_MMQR_WEBHOOK_HASHKEY'),
-      apiVersion: envFirst(env, 'YOMA_MMQR_API_VERSION'),
-      webhookSecret: envFirst(env, 'YOMA_MMQR_WEBHOOK_SECRET'),
-      baseUrl: envFirst(env, 'YOMA_MMQR_BASE_URL'),
-      timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
+    return new YomaMmqrConfig(YomaMmqrConfig.optionsFromEnv(env) as YomaMmqrConfigOptions);
+  }
+
+  /**
+   * The options `fromEnv()` reads, without validating them: each value is trimmed of ASCII
+   * whitespace and an unset or blank variable is left out (`undefined`). Merge your own options
+   * over them per key; the constructor still validates the result, e.g.
+   * `new YomaMmqrConfig({ ...YomaMmqrConfig.optionsFromEnv(), ...options } as YomaMmqrConfigOptions)`.
+   */
+  static optionsFromEnv(env: EnvSource = defaultEnv()): Partial<YomaMmqrConfigOptions> {
+    return envOptions<YomaMmqrConfigOptions>(env, {
+      merchantId: 'YOMA_MMQR_MERCHANT_ID',
+      clientId: 'YOMA_MMQR_CLIENT_ID',
+      clientSecret: 'YOMA_MMQR_CLIENT_SECRET',
+      webhookHashKey: 'YOMA_MMQR_WEBHOOK_HASHKEY',
+      apiVersion: 'YOMA_MMQR_API_VERSION',
+      webhookSecret: 'YOMA_MMQR_WEBHOOK_SECRET',
+      baseUrl: 'YOMA_MMQR_BASE_URL',
+      timeoutSeconds: HTTP_TIMEOUT_VARIABLE,
     });
   }
 }
@@ -344,8 +354,9 @@ export class YomaMmqr {
       throw apiError('token', response.status, body, get(body, 'error'));
     }
 
-    // The leading digits of `expires_in`; missing, non-numeric or 0 means an hour.
-    const expiresIn = Number(/^\d+/.exec(get(body, 'expires_in'))?.[0] ?? 0);
+    // The leading digits of `expires_in` after any whitespace; missing, non-numeric or 0 means an
+    // hour.
+    const expiresIn = Number(/^[ \t\n\v\f\r]*(\d+)/.exec(get(body, 'expires_in'))?.[1] ?? 0);
     const ttl = Math.max(60, (expiresIn > 0 ? expiresIn : 3600) - 60);
     await this.cache.set(this.tokenCacheKey(), token, ttl);
     return token;
@@ -365,7 +376,7 @@ function apiError(
   const message = optional(body, 'errorDescription') || optional(body, 'error_description');
   return new ApiError(
     errorCode
-      ? `Yoma MMQR ${endpoint} failed: [${errorCode}] ${message ?? ''}`.trimEnd()
+      ? asciiTrimEnd(`Yoma MMQR ${endpoint} failed: [${errorCode}] ${message ?? ''}`)
       : `Yoma MMQR ${endpoint} failed with HTTP ${status}.`,
     {
       gatewayCode: errorCode || undefined,

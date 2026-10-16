@@ -33,15 +33,16 @@ const kbz = payments.kbzPay(); // also wavePay(), ayaPay(), yomaMmqr(), cyberSou
 ```
 
 - Or build one gateway: `new KbzPay(new KbzPayConfig({ appId, appKey, merchantCode, apiUrl, pwaUrl, timeToLiveMinutes }))`, `KbzPay.fromEnv()` or `new KbzPay(KbzPayConfig.fromEnv(process.env))`.
-- Or pass the settings directly: gateways and `new MyanmarPayments({ kbzPay: { appId, appKey, merchantCode, apiUrl, pwaUrl, timeToLiveMinutes } })` take config objects or plain option objects; whole-number settings also take text such as `'30'`.
+- Or pass the settings directly: gateways and `new MyanmarPayments({ kbzPay: { appId, appKey, merchantCode, apiUrl, pwaUrl, timeToLiveMinutes } })` take config objects or plain option objects; whole-number settings also take text such as `'30'`, and text settings also take a safe integer (`merchantCode: 200123`; floats and booleans count as missing).
+- To merge your own options with the environment per key, spread `KbzPayConfig.optionsFromEnv(process.env)` (also on `WavePayConfig`, `AyaPayConfig`, `YomaMmqrConfig` and `CyberSourceConfig`): it returns the options `fromEnv()` reads without validating them, leaving unset variables out, e.g. `new KbzPayConfig({ ...KbzPayConfig.optionsFromEnv(process.env), appId } as KbzPayConfigOptions)` (the constructor still validates every setting).
 - Options (second argument): `{ httpClient, fetch }`. Without `httpClient`, the gateway uses `fetch` with the config's `timeoutSeconds`; a client you pass keeps its own timeout. Yoma and the facade also take `tokenCache` (any `TokenCache`, default `MemoryTokenCache`; back it with Redis when you run several processes).
-- A missing or blank setting throws `ConfigurationError` (`gateway`, `key`), e.g. `The wave_pay configuration is missing [base_redirect_url].`; a time setting that is not a whole number greater than 0 throws it too.
+- A missing or blank setting throws `ConfigurationError` (`gateway`, `key`), e.g. `The wave_pay configuration is missing [base_redirect_url].`; a time setting that is not a whole number from 1 to 2147483647 throws it too. Settings are checked in a fixed order: the required strings, then the time to live, then the timeout. Only ASCII whitespace is trimmed (a no-break space is kept).
 
 ## Use
 
 ### Amounts
 
-Amounts are `Amount.kyat(1000)`, `Amount.parse('1000.50')` or a whole `number`/`bigint`; never a float such as `10.5`. Only KBZ Pay (up to 2 decimals) and CyberSource accept decimals; Wave, AYA and Yoma take whole kyat. Invalid data throws `InvalidPaymentDataError` with `errors` per field, before any request is sent. Compare a gateway's amount by value with `amount.equals(callback.amount)`.
+Amounts are `Amount.kyat(1000)`, `Amount.parse('1000.50')` or a whole `number`/`bigint`; never a float such as `10.5`. Only KBZ Pay (up to 2 decimals) and CyberSource accept decimals; Wave, AYA and Yoma take whole kyat. Invalid data throws `InvalidPaymentDataError` with `errors` per field (a negative amount included: `The amount field must not be negative.`), before any request is sent. URLs must be valid absolute http or https URLs by PHP's `FILTER_VALIDATE_URL` rules (printable ASCII, an ASCII host name or bracketed IPv6, a port up to 65535). Compare a gateway's amount by value with `amount.equals(callback.amount)`.
 
 ### Start a payment
 
@@ -90,6 +91,7 @@ try {
 - Give the package the raw body: in Express use `express.raw({ type: '*/*' })` on the callback route; in Fastify keep the body as a string (`parseAs: 'string'`) and build `CallbackRequest.from({ body, headers, query })`.
 - `fromNodeRequest` and `fromWebRequest` read at most 64 KiB (`MAX_CALLBACK_BODY_BYTES`; change it with `{ maxBodyBytes }`); a larger body throws a `PaymentError`.
 - Yoma signs only `orderNumber` and `status`, so its callback has no `amount`: match `orderNumber` to your stored order (its QR was generated for the stored amount) and, to confirm, call `yoma.status(reference)` with that order's QR reference (`refLabel`). The status result has no amount either, so trust your stored amount.
+- `SignatureVerificationError` covers both a bad signature (`... verification failed.`) and a signed callback with malformed values (`... is malformed.`); answer both with a 400.
 - Check AYA's browser return with `aya.verifyRedirect(request)`.
 - For production, store the verified callback, acknowledge immediately, then process it once in the background.
 
@@ -97,6 +99,7 @@ try {
 
 - `kbz.status(orderId)`, `aya.status(orderId)` and `yoma.status(reference)` return `PaymentStatusResult` with `status` and `isSuccessful()`. Wave Pay and CyberSource have no status API.
 - Statuses: `PaymentStatus.Successful`, `Pending`, `Failed`, `Canceled`, `Expired`, `Unknown`; `PaymentStatus.isFinal(status)`.
+- Redirects are never followed: a 3xx response is a failure like any other non-2xx one.
 - Gateway failures throw `ApiError` (`gatewayCode`, `gatewayMessage`, `httpStatus`, `raw`; network errors and aborts are the `cause`). All errors extend `PaymentError`.
 
 ## Test your app

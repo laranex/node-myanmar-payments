@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   Amount,
+  ApiError,
   AyaPay,
   AyaPayConfig,
   CallbackRequest,
@@ -17,11 +18,16 @@ import {
   WavePayConfig,
   YomaMmqr,
   YomaMmqrConfig,
+  type AyaPayMethod,
+  type CyberSourceTransactionType,
   type PaymentCallback,
+  type PaymentStatusResult,
+  type QrPayment,
   type TokenCache,
   type WavePayPaymentData,
 } from '../src/index.js';
-import { caught, FakeFetch, fixture, gatewayConfig } from './helpers.js';
+import { Validator } from '../src/core/validate.js';
+import { caught, FakeFetch, fixture, gatewayConfig, rejected } from './helpers.js';
 
 /** The cross-SDK vectors php-, go-, node- and python-myanmar-payments all ship unchanged. */
 interface Vectors {
@@ -107,6 +113,102 @@ interface Vectors {
     valid: WaveLimit[];
     invalid: WaveLimit[];
   };
+  url_validation: {
+    field: string;
+    message: string;
+    cases: { url: string; valid: boolean }[];
+  };
+  query_escape: { cases: { input: string; escaped: string }[] };
+  ascii_trim: {
+    env: { value: string; app_id: string | null; message?: string }[];
+    kbz_pay_order_id: { order_id: string; errors: Record<string, string> }[];
+  };
+  config_setting_types: {
+    config: Record<string, string>;
+    key: string;
+    cases: { value: unknown; result: string | null }[];
+    message: string;
+  };
+  config_integer_limits: {
+    cases: {
+      gateway: string;
+      variable: string;
+      value: string;
+      seconds?: number;
+      key?: string;
+      message?: string;
+    }[];
+  };
+  config_validation_order: {
+    cases: { gateway: string; env: Record<string, string | null>; key: string; message: string }[];
+  };
+  negative_amounts: {
+    cases: { gateway: string; data: Record<string, unknown>; errors: Record<string, string> }[];
+  };
+  wave_pay_validation: {
+    data: WaveData;
+    cases: { name: string; data: Partial<WaveData> & WaveExtra; errors: Record<string, string> }[];
+  };
+  wave_pay_exact_amount: {
+    config: Vectors['wave_pay_request']['config'];
+    data: WaveData;
+    expected: { amount_json: string; items: string; hash: string };
+  };
+  wave_pay_errors: {
+    cases: {
+      status: number;
+      body: string;
+      gateway_code: string | null;
+      gateway_message: string;
+    }[];
+  };
+  aya_pay_services: {
+    cases: {
+      name: string;
+      status?: number;
+      body: string;
+      services?: {
+        name: string;
+        key: string;
+        image_url: string | null;
+        methods: string[];
+        unknown_methods: string[];
+      }[];
+      error?: ExpectedApiError;
+    }[];
+  };
+  yoma_mmqr_responses: {
+    cases: {
+      name: string;
+      call: 'status' | 'renew_qr';
+      argument: string;
+      responses: { status: number; body: string }[];
+      result?: Record<string, string>;
+      error?: ExpectedApiError;
+    }[];
+  };
+  kbz_pay_responses: {
+    cases: {
+      name: string;
+      call: 'status' | 'qr';
+      body: string;
+      result?: Record<string, string | null>;
+      error?: ExpectedApiError;
+    }[];
+  };
+}
+
+interface ExpectedApiError {
+  message: string;
+  gateway_code: string | null;
+  gateway_message: string | null;
+}
+
+/** The fields wave_pay_validation sets on top of {@link WaveData}. */
+interface WaveExtra {
+  amount?: number | string;
+  merchant_name?: string;
+  time_to_live_in_seconds?: number;
 }
 
 interface WaveData {
@@ -115,7 +217,7 @@ interface WaveData {
   callback_url: string;
   return_url: string;
   description: string;
-  items: [string, number][];
+  items: [string, number | string][];
   additional_field_3?: string | null;
   additional_field_4?: string | null;
   additional_field_5?: string | null;
@@ -133,13 +235,18 @@ function waveData(data: WaveData, overrides: Partial<WavePayPaymentData> = {}): 
     callbackUrl: data.callback_url,
     returnUrl: data.return_url,
     description: data.description,
-    items: data.items.map(([name, amount]) => ({ name, amount })),
+    items: data.items.map(([name, amount]) => ({ name, amount: parsedAmount(amount) })),
     merchantReferenceId: data.merchant_reference_id,
     additionalField3: data.additional_field_3,
     additionalField4: data.additional_field_4,
     additionalField5: data.additional_field_5,
     ...overrides,
   };
+}
+
+/** A vector amount: text is parsed as a decimal, a number is whole kyat. */
+function parsedAmount(amount: number | string): Amount | number {
+  return typeof amount === 'string' ? Amount.parse(amount) : amount;
 }
 
 interface WaveOverrides {
@@ -159,6 +266,7 @@ interface CallbackCase {
     gateway_status?: string;
     gateway_reference?: string;
     amount?: string;
+    message?: string;
   };
 }
 
@@ -209,7 +317,9 @@ describe('parity vectors', () => {
       const handle = handlers[gateway] as (request: CallbackRequest) => PaymentCallback;
 
       if (!expected.valid) {
-        expect(() => handle(request)).toThrow(SignatureVerificationError);
+        const error = caught(() => handle(request));
+        expect(error).toBeInstanceOf(SignatureVerificationError);
+        expect((error as SignatureVerificationError).message).toBe(expected.message);
         return;
       }
 
@@ -526,9 +636,342 @@ describe('parity vectors', () => {
       expect(payment.expiresAt).toBeInstanceOf(Date);
     }
   });
+
+  it('validates URLs like every other SDK', () => {
+    const { field, message, cases } = vectors.url_validation;
+    for (const { url, valid } of cases) {
+      const errors = errorsOf(() => new Validator().url(field, url).validate());
+      expect(errors, JSON.stringify(url)).toEqual(valid ? {} : { [field]: message });
+    }
+  });
+
+  it('escapes query values like every other SDK', async () => {
+    for (const { input, escaped } of vectors.query_escape.cases) {
+      const kbz = new FakeFetch({
+        body: { Response: { result: 'SUCCESS', code: '0', prepay_id: 'P1', qrCode: 'qr' } },
+      });
+      await KbzPay.fromEnv(vectors.config.env, { fetch: kbz.fetch }).qr({
+        orderId: 'ORDER_1',
+        amount: 1000,
+        callbackUrl: 'https://shop.test/cb',
+        callbackInfo: input,
+      });
+      const request = kbz.last().json().Request as { biz_content: Record<string, unknown> };
+      expect(request.biz_content.callback_info).toBe(escaped);
+
+      const wave = new FakeFetch({ body: { message: 'success', transaction_id: input } });
+      const payment = await WavePay.fromEnv(vectors.config.env, { fetch: wave.fetch }).initiate(
+        waveData(vectors.wave_pay_limits.data),
+      );
+      expect(payment.url.endsWith(`/authenticate?transaction_id=${escaped}`)).toBe(true);
+    }
+  });
+
+  it('trims only ASCII whitespace like every other SDK', () => {
+    const { env, kbz_pay_order_id } = vectors.ascii_trim;
+    for (const testCase of env) {
+      const variables = { ...vectors.config.env, KBZ_PAY_APP_ID: testCase.value };
+      if (testCase.app_id === null) {
+        expect(() => KbzPayConfig.fromEnv(variables)).toThrow(testCase.message);
+      } else {
+        expect(KbzPayConfig.fromEnv(variables).appId).toBe(testCase.app_id);
+      }
+    }
+    for (const { order_id, errors } of kbz_pay_order_id) {
+      expect(
+        errorsOf(() =>
+          KbzPay.validate({ orderId: order_id, amount: 1000, callbackUrl: 'https://shop.test/cb' }),
+        ),
+      ).toEqual(errors);
+    }
+  });
+
+  it('accepts integer string settings like every other SDK', () => {
+    const { config, key, cases, message } = vectors.config_setting_types;
+    for (const { value, result } of cases) {
+      const options = { ...camelKeys(config), [camel(key)]: value } as never;
+      if (result === null) {
+        expect(() => new CyberSourceConfig(options), JSON.stringify(value)).toThrow(message);
+      } else {
+        expect(new CyberSourceConfig(options).profileId).toBe(result);
+      }
+    }
+  });
+
+  it('caps whole-number settings at 2147483647 like every other SDK', () => {
+    for (const testCase of vectors.config_integer_limits.cases) {
+      const build = fromEnv[testCase.gateway] as (env: Record<string, string>) => {
+        timeoutSeconds: number;
+        timeToLiveSeconds?: number;
+      };
+      const env = envWith(testCase.variable, testCase.value);
+      if (testCase.seconds !== undefined) {
+        const config = build(env);
+        expect(
+          testCase.variable === 'WAVE_PAY_TIME_TO_LIVE_IN_SECONDS'
+            ? config.timeToLiveSeconds
+            : config.timeoutSeconds,
+        ).toBe(testCase.seconds);
+        continue;
+      }
+      const error = caught(() => build(env));
+      expect(error).toBeInstanceOf(ConfigurationError);
+      expect(error).toMatchObject({
+        gateway: testCase.gateway,
+        key: testCase.key,
+        message: testCase.message,
+      });
+    }
+  });
+
+  it('reports the first configuration error in the same order as every other SDK', () => {
+    for (const testCase of vectors.config_validation_order.cases) {
+      const env = Object.fromEntries(
+        Object.entries({ ...vectors.config.env, ...testCase.env }).filter(
+          (entry): entry is [string, string] => entry[1] !== null,
+        ),
+      );
+      const error = caught(() => (fromEnv[testCase.gateway] as (env: object) => unknown)(env));
+      expect(error).toBeInstanceOf(ConfigurationError);
+      expect(error).toMatchObject({ key: testCase.key, message: testCase.message });
+    }
+  });
+
+  it('collects negative amounts with the other errors like every other SDK', () => {
+    for (const { gateway, data, errors } of vectors.negative_amounts.cases) {
+      const validate: Record<string, () => void> = {
+        kbz_pay: () =>
+          KbzPay.validate({
+            orderId: data.order_id as string,
+            amount: data.amount as number,
+            callbackUrl: data.callback_url as string,
+          }),
+        wave_pay: () =>
+          WavePay.validate(
+            waveData(data as unknown as WaveData, {
+              amount: data.amount as number | undefined,
+            }),
+          ),
+        aya_pay: () =>
+          AyaPay.validate({
+            orderId: data.order_id as string,
+            amount: data.amount as number,
+            channel: data.channel as string,
+            method: data.method as AyaPayMethod,
+          }),
+        yoma_mmqr: () =>
+          YomaMmqr.validate({
+            orderId: data.order_id as string,
+            amount: data.amount as number,
+            description: data.description as string,
+          }),
+        cyber_source: () =>
+          CyberSource.validate({
+            orderId: data.order_id as string,
+            amount: data.amount as number,
+            callbackUrl: data.callback_url as string,
+            currency: data.currency as string,
+            transactionType: data.transaction_type as CyberSourceTransactionType,
+            locale: data.locale as string,
+          }),
+      };
+      expect(Object.entries(errorsOf(validate[gateway] as () => void)), gateway).toEqual(
+        Object.entries(errors),
+      );
+    }
+  });
+
+  it('validates Wave Pay payments in the same order as every other SDK', () => {
+    const { data, cases } = vectors.wave_pay_validation;
+    for (const testCase of cases) {
+      const merged = { ...data, ...testCase.data };
+      const overrides: Partial<WavePayPaymentData> = {};
+      if (merged.amount !== undefined) {
+        overrides.amount = parsedAmount(merged.amount);
+      }
+      if (merged.merchant_name !== undefined) {
+        overrides.merchantName = merged.merchant_name;
+      }
+      if (merged.time_to_live_in_seconds !== undefined) {
+        overrides.timeToLiveSeconds = merged.time_to_live_in_seconds;
+      }
+      expect(
+        Object.entries(errorsOf(() => WavePay.validate(waveData(merged, overrides)))),
+        testCase.name,
+      ).toEqual(Object.entries(testCase.errors));
+    }
+  });
+
+  it('treats a Wave Pay amount of null as not given', () => {
+    const data = waveData(vectors.wave_pay_limits.data, { amount: null });
+    expect(() => WavePay.validate(data)).not.toThrow();
+    expect(WavePay.resolvedAmount(data)?.toString()).toBe('1000');
+  });
+
+  it('sends exact Wave Pay amounts like every other SDK', async () => {
+    const { config, data, expected } = vectors.wave_pay_exact_amount;
+    const fake = new FakeFetch({ body: { message: 'success', transaction_id: 'T1' } });
+    await new WavePay(
+      {
+        merchantId: config.merchant_id,
+        secretKey: config.secret_key,
+        merchantName: config.merchant_name,
+        baseUrl: config.base_url,
+        baseRedirectUrl: config.base_redirect_url,
+        timeToLiveSeconds: config.time_to_live_in_seconds,
+      },
+      { fetch: fake.fetch },
+    ).initiate(waveData(data));
+
+    const body = fake.last().body;
+    expect(body).toContain(`"amount":${expected.amount_json},`);
+    expect(fake.last().json().items).toBe(expected.items);
+    expect(fake.last().json().hash).toBe(expected.hash);
+  });
+
+  it('reports Wave Pay request failures like every other SDK', async () => {
+    const { config } = vectors.wave_pay_request;
+    for (const testCase of vectors.wave_pay_errors.cases) {
+      const fake = new FakeFetch({ status: testCase.status, body: testCase.body });
+      const gateway = new WavePay(
+        {
+          merchantId: config.merchant_id,
+          secretKey: config.secret_key,
+          merchantName: config.merchant_name,
+          baseUrl: config.base_url,
+          baseRedirectUrl: config.base_redirect_url,
+          timeToLiveSeconds: config.time_to_live_in_seconds,
+        },
+        { fetch: fake.fetch },
+      );
+      expectApiError(
+        await rejected(gateway.initiate(waveData(vectors.wave_pay_limits.data))),
+        {
+          message: `Wave Pay payment request failed with HTTP ${testCase.status}: ${testCase.gateway_message}`,
+          gateway_code: testCase.gateway_code,
+          gateway_message: testCase.gateway_message,
+        },
+        testCase.body,
+      );
+    }
+  });
+
+  it('reads AYA Pay services like every other SDK', async () => {
+    for (const testCase of vectors.aya_pay_services.cases) {
+      const fake = new FakeFetch({ status: testCase.status ?? 200, body: testCase.body });
+      const gateway = AyaPay.fromEnv(vectors.config.env, { fetch: fake.fetch });
+      if (testCase.error !== undefined) {
+        expectApiError(await rejected(gateway.services()), testCase.error, testCase.name);
+        continue;
+      }
+      const services = await gateway.services();
+      expect(
+        services.map((service) => ({
+          name: service.name,
+          key: service.key,
+          image_url: service.imageUrl ?? null,
+          methods: [...service.methods],
+          unknown_methods: [...service.unknownMethods],
+        })),
+        testCase.name,
+      ).toEqual(testCase.services);
+    }
+  });
+
+  it('reads Yoma MMQR responses like every other SDK', async () => {
+    for (const testCase of vectors.yoma_mmqr_responses.cases) {
+      const fake = new FakeFetch(
+        ...testCase.responses.map(({ status, body }) => ({ status, body })),
+      );
+      const gateway = YomaMmqr.fromEnv(vectors.config.env, { fetch: fake.fetch });
+      const call = (): Promise<QrPayment | PaymentStatusResult> =>
+        testCase.call === 'status'
+          ? gateway.status(testCase.argument)
+          : gateway.renewQr(testCase.argument);
+      if (testCase.error !== undefined) {
+        expectApiError(await rejected(call()), testCase.error, testCase.name);
+        continue;
+      }
+      const result = await call();
+      expect(
+        testCase.call === 'renew_qr'
+          ? {
+              qr_image: (result as QrPayment).qrImage,
+              reference: (result as QrPayment).reference,
+            }
+          : {
+              status: (result as PaymentStatusResult).status,
+              gateway_status: (result as PaymentStatusResult).gatewayStatus,
+              gateway_reference: (result as PaymentStatusResult).gatewayReference,
+            },
+        testCase.name,
+      ).toEqual(testCase.result);
+    }
+  });
+
+  it('reads KBZ Pay responses like every other SDK', async () => {
+    for (const testCase of vectors.kbz_pay_responses.cases) {
+      const fake = new FakeFetch({ body: testCase.body });
+      const gateway = KbzPay.fromEnv(vectors.config.env, { fetch: fake.fetch });
+      const call = (): Promise<QrPayment | PaymentStatusResult> =>
+        testCase.call === 'status'
+          ? gateway.status('ORDER_1')
+          : gateway.qr({ orderId: 'ORDER_1', amount: 1000, callbackUrl: 'https://shop.test/cb' });
+      if (testCase.error !== undefined) {
+        expectApiError(await rejected(call()), testCase.error, testCase.name);
+        continue;
+      }
+      const result = await call();
+      expect(
+        testCase.call === 'qr'
+          ? {
+              qr_string: (result as QrPayment).qrString,
+              reference: (result as QrPayment).reference,
+            }
+          : {
+              order_id: (result as PaymentStatusResult).orderId,
+              status: (result as PaymentStatusResult).status,
+              gateway_status: (result as PaymentStatusResult).gatewayStatus,
+              gateway_reference: (result as PaymentStatusResult).gatewayReference ?? null,
+              amount: (result as PaymentStatusResult).amount ?? null,
+            },
+        testCase.name,
+      ).toEqual(testCase.result);
+    }
+  });
 });
 
 /** The shared config env with `variable` set to `value`. */
 function envWith(variable: string, value: string): Record<string, string> {
   return { ...vectors.config.env, [variable]: value };
+}
+
+/** The errors `validate` throws, in the order they were found, or `{}`. */
+function errorsOf(validate: () => void): Readonly<Record<string, string>> {
+  try {
+    validate();
+  } catch (error) {
+    return (error as InvalidPaymentDataError).errors;
+  }
+  return {};
+}
+
+/** Checks an {@link ApiError} against a vector's expected error (`null` means none). */
+function expectApiError(error: unknown, expected: ExpectedApiError, name: string): void {
+  expect(error, name).toBeInstanceOf(ApiError);
+  const { message, gatewayCode, gatewayMessage } = error as ApiError;
+  expect([message, gatewayCode ?? null, gatewayMessage ?? null], name).toEqual([
+    expected.message,
+    expected.gateway_code,
+    expected.gateway_message,
+  ]);
+}
+
+/** `profile_id` as `profileId`. */
+function camel(key: string): string {
+  return key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+}
+
+function camelKeys(config: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(config).map(([key, value]) => [camel(key), value]));
 }

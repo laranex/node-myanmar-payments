@@ -31,9 +31,33 @@ export function optional(source: Record<string, unknown>, key: string): string |
   return scalarString(source[key]);
 }
 
-/** The value at `key` with surrounding whitespace removed. @internal */
+/** ASCII whitespace and NUL, the characters PHP `trim()` removes. */
+const TRIMMED = new Set([' ', '\t', '\n', '\r', '\0', '\v']);
+
+/**
+ * Removes ASCII whitespace and NUL (`" \t\n\r\0\x0B"`) from both ends, like PHP `trim()`. A
+ * no-break space or a byte order mark is a character, not whitespace. @internal
+ */
+export function asciiTrim(value: string): string {
+  let start = 0;
+  while (start < value.length && TRIMMED.has(value.charAt(start))) {
+    start++;
+  }
+  return asciiTrimEnd(value.slice(start));
+}
+
+/** Removes trailing ASCII whitespace and NUL, like PHP `rtrim()`. @internal */
+export function asciiTrimEnd(value: string): string {
+  let end = value.length;
+  while (end > 0 && TRIMMED.has(value.charAt(end - 1))) {
+    end--;
+  }
+  return value.slice(0, end);
+}
+
+/** The value at `key` with surrounding ASCII whitespace removed. @internal */
 export function trimmed(source: Record<string, unknown>, key: string): string {
-  return get(source, key).trim();
+  return asciiTrim(get(source, key));
 }
 
 /** The value at `key` when it is an object (not an array). @internal */

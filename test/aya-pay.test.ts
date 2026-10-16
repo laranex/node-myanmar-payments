@@ -194,7 +194,7 @@ describe('AyaPay', () => {
       methods: ['WEB'],
       unknownMethods: ['TOKEN'],
     });
-    expect(services[2]).toMatchObject({ name: 'visa', methods: [], unknownMethods: [''] });
+    expect(services[2]).toMatchObject({ name: 'visa', methods: [], unknownMethods: [] });
   });
 
   it('returns no services when the list is missing', async () => {

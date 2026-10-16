@@ -20,4 +20,5 @@ assert.strictEqual(kbz.config.timeoutSeconds, root.DEFAULT_TIMEOUT_SECONDS);
 assert.strictEqual(root.DEFAULT_TIMEOUT_SECONDS, 30);
 assert.match(kbz.signer.sign({ a: '1' }), /^[0-9A-F]{64}$/);
 assert.strictEqual(root.Amount.parse('1000.50').toString(), '1000.50');
+assert.deepStrictEqual(root.KbzPayConfig.optionsFromEnv({ KBZ_PAY_APP_ID: ' a ' }), { appId: 'a' });
 console.log('ES modules OK');

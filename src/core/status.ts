@@ -1,3 +1,5 @@
+import { asciiTrim } from './values.js';
+
 /**
  * A gateway-independent payment status. Every gateway's own status values are mapped onto these.
  */
@@ -41,14 +43,14 @@ export const PaymentStatus = Object.freeze({
 });
 
 /**
- * Maps a gateway status onto a {@link PaymentStatus}, trimming whitespace. Statuses missing from
+ * Maps a gateway status onto a {@link PaymentStatus}, trimming ASCII whitespace. Statuses missing from
  * the map resolve to `unknown`.
  */
 export function resolveStatus(
   statuses: Readonly<Record<string, PaymentStatus>>,
   gatewayStatus: string | null | undefined,
 ): PaymentStatus {
-  const key = (gatewayStatus ?? '').trim();
+  const key = asciiTrim(gatewayStatus ?? '');
   return Object.prototype.hasOwnProperty.call(statuses, key)
     ? (statuses[key] as PaymentStatus)
     : 'unknown';

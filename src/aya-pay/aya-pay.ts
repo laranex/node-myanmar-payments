@@ -9,7 +9,7 @@ import {
 import { decodeBase64, hmacSha256Hex, safeEqual } from '../core/crypto.js';
 import {
   defaultEnv,
-  envFirst,
+  envOptions,
   HTTP_TIMEOUT_VARIABLE,
   requireSetting,
   resolveTimeout,
@@ -32,7 +32,7 @@ import {
 import { FormPayment, type FormField } from '../core/results.js';
 import { resolveStatus, type PaymentStatus } from '../core/status.js';
 import { toAmount, Validator } from '../core/validate.js';
-import { get, isNested, object, optional, scalarString } from '../core/values.js';
+import { asciiTrimEnd, get, isNested, object, optional, scalarString } from '../core/values.js';
 
 /** The settings of {@link AyaPayConfig}. */
 export interface AyaPayConfigOptions {
@@ -77,11 +77,21 @@ export class AyaPayConfig {
    * `MYANMAR_PAYMENTS_HTTP_TIMEOUT`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): AyaPayConfig {
-    return new AyaPayConfig({
-      appKey: envFirst(env, 'AYA_PAY_APP_KEY'),
-      appSecret: envFirst(env, 'AYA_PAY_APP_SECRET'),
-      baseUrl: envFirst(env, 'AYA_PAY_BASE_URL'),
-      timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
+    return new AyaPayConfig(AyaPayConfig.optionsFromEnv(env) as AyaPayConfigOptions);
+  }
+
+  /**
+   * The options `fromEnv()` reads, without validating them: each value is trimmed of ASCII
+   * whitespace and an unset or blank variable is left out (`undefined`). Merge your own options
+   * over them per key; the constructor still validates the result, e.g.
+   * `new AyaPayConfig({ ...AyaPayConfig.optionsFromEnv(), ...options } as AyaPayConfigOptions)`.
+   */
+  static optionsFromEnv(env: EnvSource = defaultEnv()): Partial<AyaPayConfigOptions> {
+    return envOptions<AyaPayConfigOptions>(env, {
+      appKey: 'AYA_PAY_APP_KEY',
+      appSecret: 'AYA_PAY_APP_SECRET',
+      baseUrl: 'AYA_PAY_BASE_URL',
+      timeoutSeconds: HTTP_TIMEOUT_VARIABLE,
     });
   }
 }
@@ -204,7 +214,7 @@ const REQUIRED_FORMATS: readonly (readonly [(typeof PAYLOAD_FIELDS)[number], Reg
   ['statusCode', /^\d{2}$/],
 ];
 
-const COLON_MESSAGE = (field: string): string => `The ${field} field must not contain a colon (:).`;
+const COLON_MESSAGE = (field: string): string => `The ${field} field must not contain ":".`;
 
 /**
  * The AYA Payment Gateway (APG): one hosted checkout for AYA Pay, other wallets and cards, with
@@ -240,9 +250,6 @@ export class AyaPay {
       )
       .string('returnUrl', data.returnUrl)
       .url('returnUrl', data.returnUrl)
-      .when(hasColon(data.orderId), 'orderId', COLON_MESSAGE('orderId'))
-      .string('description', data.description)
-      .when(hasColon(data.description), 'description', COLON_MESSAGE('description'))
       .when(
         userRefs !== undefined &&
           (!Array.isArray(userRefs) || userRefs.some((ref) => typeof ref !== 'string')),
@@ -254,6 +261,9 @@ export class AyaPay {
         'userRefs',
         'The userRefs field must not have more than 5 items.',
       )
+      .when(hasColon(data.orderId), 'orderId', COLON_MESSAGE('orderId'))
+      .string('description', data.description)
+      .when(hasColon(data.description), 'description', COLON_MESSAGE('description'))
       .when(
         Array.isArray(userRefs) && userRefs.some((ref) => hasColon(ref)),
         'userRefs',
@@ -284,7 +294,10 @@ export class AyaPay {
       const methods: AyaPayMethod[] = [];
       const unknownMethods: string[] = [];
       for (const method of Array.isArray(entry.methods) ? entry.methods : []) {
-        const name = scalarString(method) ?? '';
+        const name = scalarString(method);
+        if (name === undefined) {
+          continue;
+        }
         if (METHODS.includes(name)) {
           methods.push(name as AyaPayMethod);
         } else {
@@ -377,49 +390,46 @@ export class AyaPay {
     return toCallback(this.verifiedPayload(losslessQueryInput(request), 'redirect'));
   }
 
-  /** Decodes a `payload` + `checkSum` pair and returns the payload if the checksum matches. */
+  /**
+   * Decodes a `payload` + `checkSum` pair and returns the payload if the checksum matches and the
+   * payload is well formed. Undecodable input, a nested value, a `payload` or `checkSum` that is not
+   * a string and a wrong checksum fail with "AYA Pay {context} checksum verification failed."; a
+   * correctly signed payload with bad values fails with "AYA Pay {context} payload is malformed.".
+   */
   private verifiedPayload(input: LosslessObject, context: string): LosslessObject {
-    const fail = (): SignatureVerificationError =>
-      new SignatureVerificationError(
-        `AYA Pay ${context} checksum verification failed.`,
-        toPlainObject(input),
-      );
+    const fail = (reason: string): SignatureVerificationError =>
+      new SignatureVerificationError(`AYA Pay ${context} ${reason}`, toPlainObject(input));
 
+    const encoded = input.payload;
+    const checkSum = input.checkSum;
     // Base64 never contains spaces: a space is a `+` that an unencoded query string turned into one.
-    const json = decodeBase64(get(input, 'payload').replace(/ /g, '+'));
+    const json =
+      typeof encoded === 'string' && typeof checkSum === 'string'
+        ? decodeBase64(encoded.replace(/ /g, '+'))
+        : undefined;
     const payload = json === undefined ? undefined : parseJsonObject(json);
     if (payload === undefined) {
-      throw fail();
+      throw fail('checksum verification failed.');
     }
 
-    // The checksum joins the values with ":", so a value containing ":" could move a signed
-    // boundary (e.g. read a failed status out of a genuine payload's time). Only `dateTime`, the
-    // last field, may hold one, and only in AYA's own format.
-    const parts: string[] = [];
+    const values: string[] = [];
     for (const field of PAYLOAD_FIELDS) {
       const key = currencyKey(payload, field);
       if (Object.prototype.hasOwnProperty.call(payload, key)) {
         // A nested value is never signed, so a payload carrying one is rejected.
         if (isNested(payload[key])) {
-          throw fail();
+          throw fail('checksum verification failed.');
         }
-        const value = scalarString(payload[key]) ?? '';
-        if (field === 'dateTime' ? value !== '' && !DATE_TIME.test(value) : value.includes(':')) {
-          throw fail();
-        }
-        parts.push(value);
+        values.push(scalarString(payload[key]) ?? '');
       }
     }
 
-    if (!safeEqual(this.checksum(parts), get(input, 'checkSum').toLowerCase())) {
-      throw fail();
+    if (!safeEqual(this.checksum(values), (checkSum as string).toLowerCase())) {
+      throw fail('checksum verification failed.');
     }
 
-    for (const [field, format] of REQUIRED_FORMATS) {
-      const value = scalarString(payload[currencyKey(payload, field)]);
-      if (value === undefined || !format.test(value)) {
-        throw fail();
-      }
+    if (!wellFormed(payload)) {
+      throw fail('payload is malformed.');
     }
     return payload;
   }
@@ -445,7 +455,7 @@ export class AyaPay {
       const message = optional(body, 'message');
       throw new ApiError(
         status
-          ? `AYA Pay ${endpoint} failed: [${status}] ${message ?? ''}`.trimEnd()
+          ? asciiTrimEnd(`AYA Pay ${endpoint} failed: [${status}] ${message ?? ''}`)
           : `AYA Pay ${endpoint} failed with HTTP ${response.status}.`,
         {
           gatewayCode: status || undefined,
@@ -469,6 +479,25 @@ function toCallback(payload: LosslessObject): PaymentCallback {
     amount: optional(payload, 'amount'),
     raw: toPlainObject(payload),
   });
+}
+
+/**
+ * The checksum joins the values with ":", so a value containing ":" could move a signed boundary
+ * (e.g. read a failed status out of a genuine payload's time). Only `dateTime`, the last field, may
+ * hold one, and only in AYA's own format. The fields a result is read from must be present and
+ * strictly formatted.
+ */
+function wellFormed(payload: LosslessObject): boolean {
+  return (
+    PAYLOAD_FIELDS.every((field) => {
+      const value = scalarString(payload[currencyKey(payload, field)]) ?? '';
+      return field === 'dateTime' ? value === '' || DATE_TIME.test(value) : !value.includes(':');
+    }) &&
+    REQUIRED_FORMATS.every(([field, format]) => {
+      const value = scalarString(payload[currencyKey(payload, field)]);
+      return value !== undefined && format.test(value);
+    })
+  );
 }
 
 /** The key the payload uses for `field`: AYA spells `currencyCode` as `currenyCode`. */

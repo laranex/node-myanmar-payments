@@ -622,6 +622,36 @@ describe('FetchHttpClient and transport', () => {
     expect(response.json()).toEqual({});
   });
 
+  it('never follows redirects: a 3xx is returned as is', async () => {
+    const paths: string[] = [];
+    const server = createServer((req, res) => {
+      paths.push(req.url ?? '');
+      res.writeHead(req.url === '/start' ? 302 : 200, { Location: '/elsewhere' }).end('{}');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    try {
+      const response = await new Transport(new FetchHttpClient({ timeoutMs: 5000 })).postJson(
+        `http://127.0.0.1:${port}/start`,
+        {},
+      );
+      expect(response.status).toBe(302);
+      expect(response.successful()).toBe(false);
+      expect(paths).toEqual(['/start']);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('asks fetch not to follow redirects', async () => {
+    const fetch = vi.fn((_url: string, _init: RequestInit) => Promise.resolve(new Response('{}')));
+    await new Transport(new FetchHttpClient({ fetch, timeoutMs: 1000 })).postJson(
+      'https://api.test/x',
+      {},
+    );
+    expect(fetch.mock.calls[0]?.[1].redirect).toBe('manual');
+  });
+
   it('turns network failures into ApiErrors with the cause', async () => {
     const cause = new TypeError('fetch failed');
     const transport = new Transport(
