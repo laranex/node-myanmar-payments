@@ -130,9 +130,19 @@ export class Transport {
     headers: Record<string, string> = {},
     signal?: AbortSignal,
   ): Promise<GatewayResponse> {
+    return this.postJsonText(url, JSON.stringify(data), headers, signal);
+  }
+
+  /** Posts a body that is already JSON text. */
+  postJsonText(
+    url: string,
+    body: string,
+    headers: Record<string, string> = {},
+    signal?: AbortSignal,
+  ): Promise<GatewayResponse> {
     return this.post(
       url,
-      JSON.stringify(data),
+      body,
       { 'Content-Type': 'application/json', Accept: 'application/json', ...headers },
       signal,
     );

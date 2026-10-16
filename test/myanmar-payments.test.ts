@@ -10,7 +10,7 @@ import {
   KbzPayConfig,
   MemoryTokenCache,
   MyanmarPayments,
-  WaveMoney,
+  WavePay,
   YomaMmqr,
 } from '../src/index.js';
 import * as api from '../src/index.js';
@@ -18,7 +18,7 @@ import { caught, FakeFetch, fixture, gatewayConfig } from './helpers.js';
 
 const full = {
   kbzPay: gatewayConfig.kbzPay(),
-  waveMoney: gatewayConfig.waveMoney(),
+  wavePay: gatewayConfig.wavePay(),
   ayaPay: gatewayConfig.ayaPay(),
   yomaMmqr: gatewayConfig.yomaMmqr(),
   cyberSource: gatewayConfig.cyberSource(),
@@ -29,8 +29,8 @@ describe('MyanmarPayments', () => {
     const payments = new MyanmarPayments(full);
     expect(payments.kbzPay()).toBeInstanceOf(KbzPay);
     expect(payments.kbzPay()).toBe(payments.kbzPay());
-    expect(payments.waveMoney()).toBeInstanceOf(WaveMoney);
-    expect(payments.waveMoney()).toBe(payments.waveMoney());
+    expect(payments.wavePay()).toBeInstanceOf(WavePay);
+    expect(payments.wavePay()).toBe(payments.wavePay());
     expect(payments.ayaPay()).toBeInstanceOf(AyaPay);
     expect(payments.ayaPay()).toBe(payments.ayaPay());
     expect(payments.yomaMmqr()).toBeInstanceOf(YomaMmqr);
@@ -46,7 +46,7 @@ describe('MyanmarPayments', () => {
 
   it.each([
     ['kbzPay', 'kbz_pay', 'app_id'],
-    ['waveMoney', 'wave_money', 'merchant_id'],
+    ['wavePay', 'wave_pay', 'merchant_id'],
     ['ayaPay', 'aya_pay', 'app_key'],
     ['yomaMmqr', 'yoma_mmqr', 'merchant_id'],
     ['cyberSource', 'cyber_source', 'profile_id'],
@@ -73,7 +73,7 @@ describe('MyanmarPayments', () => {
     );
     const payments = MyanmarPayments.fromEnv(withoutCyberSource);
     expect(payments.kbzPay().config.appId).toBe('kp123');
-    expect(payments.waveMoney().config.merchantName).toBe('Shop');
+    expect(payments.wavePay().config.merchantName).toBe('Shop');
     expect(payments.ayaPay().config.appKey).toBe('app-key');
     expect(payments.yomaMmqr().config.clientId).toBe('client');
     expect(caught(() => payments.cyberSource())).toMatchObject({

@@ -7,7 +7,7 @@ import type {
   CyberSourceConfigOptions,
   FetchFunction,
   KbzPayConfigOptions,
-  WaveMoneyConfigOptions,
+  WavePayConfigOptions,
   YomaMmqrConfigOptions,
 } from '../src/index.js';
 
@@ -121,7 +121,7 @@ export const gatewayConfig = {
     timeoutSeconds: 30,
     ...overrides,
   }),
-  waveMoney: (overrides: Partial<WaveMoneyConfigOptions> = {}): WaveMoneyConfigOptions => ({
+  wavePay: (overrides: Partial<WavePayConfigOptions> = {}): WavePayConfigOptions => ({
     merchantId: 'testmerchantID',
     secretKey: 'test-secret',
     merchantName: 'Shop',

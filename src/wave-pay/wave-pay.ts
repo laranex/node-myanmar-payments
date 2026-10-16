@@ -24,8 +24,8 @@ import { resolveStatus, type PaymentStatus } from '../core/status.js';
 import { toAmount, Validator } from '../core/validate.js';
 import { get, isNested, optional, scalarString, trimmed } from '../core/values.js';
 
-/** The settings of {@link WaveMoneyConfig}. */
-export interface WaveMoneyConfigOptions {
+/** The settings of {@link WavePayConfig}. */
+export interface WavePayConfigOptions {
   /** The merchant id Wave issued. */
   merchantId: string;
   /** The hash secret key Wave issued. */
@@ -33,13 +33,13 @@ export interface WaveMoneyConfigOptions {
   /** Your business name, shown on Wave's payment page. */
   merchantName: string;
   /**
-   * The API base URL, e.g. `WaveMoneyConfig.PRODUCTION_URL` or
+   * The API base URL, e.g. `WavePayConfig.PRODUCTION_URL` or
    * `https://preprodpayments.wavemoney.io:8107`. Payments are requested at its `/payment`.
    */
   baseUrl: string;
   /**
-   * The host the customer is sent to, e.g. `WaveMoneyConfig.PRODUCTION_URL` or
-   * `https://preprodpayments.wavemoney.io`. The customer approves the payment at its
+   * The host the customer is sent to, e.g. `WavePayConfig.PRODUCTION_URL` or
+   * `https://preprodpayments.wavemoney.io:8107`. The customer approves the payment at its
    * `/authenticate`.
    */
   baseRedirectUrl: string;
@@ -57,11 +57,11 @@ export interface WaveMoneyConfigOptions {
 }
 
 /**
- * Wave Money credentials and endpoints. Every setting is required except the HTTP timeout; a
+ * Wave Pay (Pay with Wave) credentials and endpoints. Every setting is required except the HTTP timeout; a
  * missing one throws a `ConfigurationError`. `PRODUCTION_URL` names production's API and payment
  * page host.
  */
-export class WaveMoneyConfig {
+export class WavePayConfig {
   static readonly PRODUCTION_URL = 'https://payments.wavemoney.io';
 
   readonly merchantId: string;
@@ -76,42 +76,42 @@ export class WaveMoneyConfig {
   /** Seconds before the default HTTP client gives up on a request. */
   readonly timeoutSeconds: number;
 
-  constructor(options: WaveMoneyConfigOptions) {
-    this.merchantId = requireSetting('wave_money', 'merchant_id', options.merchantId);
-    this.secretKey = requireSetting('wave_money', 'secret_key', options.secretKey);
-    this.merchantName = requireSetting('wave_money', 'merchant_name', options.merchantName);
-    this.baseUrl = trimUrl(requireSetting('wave_money', 'base_url', options.baseUrl));
+  constructor(options: WavePayConfigOptions) {
+    this.merchantId = requireSetting('wave_pay', 'merchant_id', options.merchantId);
+    this.secretKey = requireSetting('wave_pay', 'secret_key', options.secretKey);
+    this.merchantName = requireSetting('wave_pay', 'merchant_name', options.merchantName);
+    this.baseUrl = trimUrl(requireSetting('wave_pay', 'base_url', options.baseUrl));
     this.baseRedirectUrl = trimUrl(
-      requireSetting('wave_money', 'base_redirect_url', options.baseRedirectUrl),
+      requireSetting('wave_pay', 'base_redirect_url', options.baseRedirectUrl),
     );
     this.timeToLiveSeconds = requireSeconds(
-      'wave_money',
+      'wave_pay',
       'time_to_live_in_seconds',
       options.timeToLiveSeconds,
     );
-    this.timeoutSeconds = resolveTimeout('wave_money', options.timeoutSeconds);
+    this.timeoutSeconds = resolveTimeout('wave_pay', options.timeoutSeconds);
   }
 
   /**
-   * Reads `WAVE_MONEY_MERCHANT_ID`, `WAVE_MONEY_SECRET_KEY`, `WAVE_MONEY_MERCHANT_NAME`,
-   * `WAVE_MONEY_BASE_URL`, `WAVE_MONEY_BASE_REDIRECT_URL`, `WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS` and
+   * Reads `WAVE_PAY_MERCHANT_ID`, `WAVE_PAY_SECRET_KEY`, `WAVE_PAY_MERCHANT_NAME`,
+   * `WAVE_PAY_BASE_URL`, `WAVE_PAY_BASE_REDIRECT_URL`, `WAVE_PAY_TIME_TO_LIVE_IN_SECONDS` and
    * `MYANMAR_PAYMENTS_HTTP_TIMEOUT`.
    */
-  static fromEnv(env: EnvSource = defaultEnv()): WaveMoneyConfig {
-    return new WaveMoneyConfig({
-      merchantId: envFirst(env, 'WAVE_MONEY_MERCHANT_ID'),
-      secretKey: envFirst(env, 'WAVE_MONEY_SECRET_KEY'),
-      merchantName: envFirst(env, 'WAVE_MONEY_MERCHANT_NAME'),
-      baseUrl: envFirst(env, 'WAVE_MONEY_BASE_URL'),
-      baseRedirectUrl: envFirst(env, 'WAVE_MONEY_BASE_REDIRECT_URL'),
-      timeToLiveSeconds: envFirst(env, 'WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS'),
+  static fromEnv(env: EnvSource = defaultEnv()): WavePayConfig {
+    return new WavePayConfig({
+      merchantId: envFirst(env, 'WAVE_PAY_MERCHANT_ID'),
+      secretKey: envFirst(env, 'WAVE_PAY_SECRET_KEY'),
+      merchantName: envFirst(env, 'WAVE_PAY_MERCHANT_NAME'),
+      baseUrl: envFirst(env, 'WAVE_PAY_BASE_URL'),
+      baseRedirectUrl: envFirst(env, 'WAVE_PAY_BASE_REDIRECT_URL'),
+      timeToLiveSeconds: envFirst(env, 'WAVE_PAY_TIME_TO_LIVE_IN_SECONDS'),
       timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
     });
   }
 }
 
 /** A line item shown on Wave's payment page. */
-export interface WaveMoneyItem {
+export interface WavePayItem {
   /** The item name. */
   name: string;
   /** The item amount in whole kyat, e.g. `Amount.kyat(1000)` or `1000`. */
@@ -119,25 +119,31 @@ export interface WaveMoneyItem {
 }
 
 /**
- * A Wave Money payment request. Wave only accepts whole kyat (MMK).
+ * A Wave Pay payment request. Wave only accepts whole kyat (MMK). Lengths are counted in UTF-8
+ * bytes.
  */
-export interface WaveMoneyPaymentData {
+export interface WavePayPaymentData {
   /**
-   * Your order id: letters, digits, `_` and `-`. One order can have several payment attempts.
+   * Your order id, at most 100 characters: letters, digits, `_` and `-`. One order can have several
+   * payment attempts.
    */
   orderId: string;
-  /** The URL Wave posts the result to (`backend_result_url`). */
+  /** The URL Wave posts the result to (`backend_result_url`), at most 255 characters. */
   callbackUrl: string;
-  /** Where Wave sends the customer back (`frontend_result_url`). Not proof of payment. */
+  /**
+   * Where Wave sends the customer back (`frontend_result_url`), at most 255 characters. Not proof
+   * of payment.
+   */
   returnUrl: string;
-  /** Shown to the customer. */
+  /** Shown to the customer (`payment_description`), at most 255 characters. */
   description: string;
   /** The line items shown on Wave's page; at least one. */
-  items: readonly WaveMoneyItem[];
+  items: readonly WavePayItem[];
   /** The total in whole kyat. Leave it unset to charge the sum of the items. */
   amount?: AmountInput | undefined;
   /**
-   * The unique id of this attempt (letters, digits, `_` and `-`); Wave rejects a reused one.
+   * The unique id of this attempt, at most 100 characters (letters, digits, `_` and `-`); Wave
+   * rejects a reused one.
    * `initiate()` fills it with a random id when empty, so store it afterwards: Wave's callback may omit `orderId` but always carries
    * this.
    */
@@ -152,13 +158,36 @@ export interface WaveMoneyPaymentData {
    * Overrides the configured `timeToLiveSeconds` for this payment.
    */
   timeToLiveSeconds?: number | null | undefined;
+  /**
+   * Extra information sent as `additional_field_3`, at most 50 characters; Wave echoes it as the
+   * callback's `additionalField3`. Not sent when null or empty.
+   */
+  additionalField3?: string | null | undefined;
+  /**
+   * Extra information sent as `additional_field_4`, at most 50 characters; echoed as
+   * `additionalField4`. Not sent when null or empty.
+   */
+  additionalField4?: string | null | undefined;
+  /**
+   * Extra information sent as `additional_field_5`, at most 50 characters; echoed as
+   * `additionalField5`. Not sent when null or empty.
+   */
+  additionalField5?: string | null | undefined;
 }
+
+const CURRENCY = 'MMK';
+
+const ADDITIONAL_FIELDS = [
+  ['additional_field_3', 'additionalField3'],
+  ['additional_field_4', 'additionalField4'],
+  ['additional_field_5', 'additionalField5'],
+] as const;
 
 const STATUSES: Readonly<Record<string, PaymentStatus>> = {
   PAYMENT_CONFIRMED: 'successful',
-  INSUFFICIENT_BALANCE: 'pending',
-  ACCOUNT_LOCKED: 'failed',
   BILL_COLLECTION_FAILED: 'failed',
+  INSUFFICIENT_BALANCE: 'failed',
+  ACCOUNT_LOCKED: 'failed',
   PAYMENT_REQUEST_CANCELLED: 'canceled',
   TRANSACTION_TIMED_OUT: 'expired',
   SCHEDULER_TRANSACTION_TIMED_OUT: 'expired',
@@ -186,29 +215,29 @@ const CALLBACK_FIELDS = [
 ] as const;
 
 /**
- * Wave Money (WavePay payment gateway): redirect payments and callbacks. Wave has no status API,
- * so the callback is the only result.
+ * Wave Pay (Pay with Wave API v1.3): redirect payments and callbacks. Wave has no status API, so
+ * the callback is the only result.
  */
-export class WaveMoney {
+export class WavePay {
   /** The configuration in use. */
-  readonly config: WaveMoneyConfig;
+  readonly config: WavePayConfig;
   private readonly transport: Transport;
 
-  constructor(config: WaveMoneyConfig | WaveMoneyConfigOptions, options: GatewayOptions = {}) {
-    this.config = config instanceof WaveMoneyConfig ? config : new WaveMoneyConfig(config);
+  constructor(config: WavePayConfig | WavePayConfigOptions, options: GatewayOptions = {}) {
+    this.config = config instanceof WavePayConfig ? config : new WavePayConfig(config);
     this.transport = new Transport(httpClientFrom(options, this.config.timeoutSeconds));
   }
 
-  /** A gateway configured from the `WAVE_MONEY_*` environment variables. */
-  static fromEnv(env: EnvSource = defaultEnv(), options: GatewayOptions = {}): WaveMoney {
-    return new WaveMoney(WaveMoneyConfig.fromEnv(env), options);
+  /** A gateway configured from the `WAVE_PAY_*` environment variables. */
+  static fromEnv(env: EnvSource = defaultEnv(), options: GatewayOptions = {}): WavePay {
+    return new WavePay(WavePayConfig.fromEnv(env), options);
   }
 
   /**
    * The total that will be charged: `amount`, or the exact sum of the items when it is unset.
    * `undefined` when an item amount is missing, malformed or has decimals.
    */
-  static resolvedAmount(data: Pick<WaveMoneyPaymentData, 'amount' | 'items'>): Amount | undefined {
+  static resolvedAmount(data: Pick<WavePayPaymentData, 'amount' | 'items'>): Amount | undefined {
     if (data.amount !== undefined) {
       return toAmount(data.amount);
     }
@@ -216,7 +245,7 @@ export class WaveMoney {
       return undefined;
     }
     let total = 0n;
-    for (const item of data.items as readonly WaveMoneyItem[]) {
+    for (const item of data.items as readonly WavePayItem[]) {
       const amount = toAmount(item?.amount);
       if (amount === undefined || amount.decimalPlaces() > 0) {
         return undefined;
@@ -227,18 +256,23 @@ export class WaveMoney {
   }
 
   /** Checks the request against Wave's documented rules; throws an `InvalidPaymentDataError`. */
-  static validate(data: WaveMoneyPaymentData): void {
-    const items: readonly WaveMoneyItem[] = Array.isArray(data.items) ? data.items : [];
+  static validate(data: WavePayPaymentData): void {
+    const items: readonly WavePayItem[] = Array.isArray(data.items) ? data.items : [];
     const validator = new Validator()
       .required('orderId', data.orderId)
+      .max('orderId', data.orderId, 100)
       .pattern('orderId', data.orderId, ID, ID_DESCRIPTION)
       .required('callbackUrl', data.callbackUrl)
       .url('callbackUrl', data.callbackUrl)
+      .max('callbackUrl', data.callbackUrl, 255)
       .required('returnUrl', data.returnUrl)
       .url('returnUrl', data.returnUrl)
+      .max('returnUrl', data.returnUrl, 255)
       .required('description', data.description)
+      .max('description', data.description, 255)
       .when(items.length === 0, 'items', 'The items field must have at least one item.')
       .string('merchantReferenceId', data.merchantReferenceId)
+      .max('merchantReferenceId', data.merchantReferenceId, 100)
       .pattern('merchantReferenceId', data.merchantReferenceId, ID, ID_DESCRIPTION)
       .string('merchantName', data.merchantName)
       .when(
@@ -256,15 +290,18 @@ export class WaveMoney {
         'timeToLiveSeconds',
         'The timeToLiveSeconds field must be greater than 0.',
       );
+    for (const [, field] of ADDITIONAL_FIELDS) {
+      validator.string(field, data[field]).max(field, data[field] ?? undefined, 50);
+    }
     items.forEach((item, index) => {
       validator
         .required(`items.${index}.name`, item?.name)
-        .amount(`items.${index}.amount`, item?.amount, { gateway: 'Wave Money', maxDecimals: 0 });
+        .amount(`items.${index}.amount`, item?.amount, { gateway: 'Wave Pay', maxDecimals: 0 });
     });
-    const resolved = WaveMoney.resolvedAmount(data);
+    const resolved = WavePay.resolvedAmount(data);
     if (!(items.length > 0 && data.amount === undefined && resolved === undefined)) {
       validator.amount('amount', data.amount ?? resolved, {
-        gateway: 'Wave Money',
+        gateway: 'Wave Pay',
         maxDecimals: 0,
       });
     }
@@ -272,21 +309,19 @@ export class WaveMoney {
   }
 
   /**
-   * Creates a payment request and returns Wave's page to redirect the customer to. Once `data`
+   * Creates a payment request (a JSON post to `{baseUrl}/payment`, currency MMK) and returns Wave's
+   * page to redirect the customer to (`{baseRedirectUrl}/authenticate?transaction_id=...`). Once `data`
    * passes validation it fills `data.merchantReferenceId` with a random id when empty, so store it
    * afterwards. Invalid data is left untouched.
    */
-  async initiate(
-    data: WaveMoneyPaymentData,
-    options: RequestOptions = {},
-  ): Promise<RedirectPayment> {
-    WaveMoney.validate(data);
+  async initiate(data: WavePayPaymentData, options: RequestOptions = {}): Promise<RedirectPayment> {
+    WavePay.validate(data);
     const timeToLiveSeconds = data.timeToLiveSeconds ?? this.config.timeToLiveSeconds;
     if (!data.merchantReferenceId) {
       data.merchantReferenceId = randomHex();
     }
 
-    const amount = (WaveMoney.resolvedAmount(data) as Amount).toString();
+    const amount = (WavePay.resolvedAmount(data) as Amount).toString();
     const ttl = String(timeToLiveSeconds);
     // Wave documents items as [{"name": "...", "amount": 1000}] with a numeric amount; the amount
     // text is written as a JSON number without passing through a float.
@@ -296,28 +331,44 @@ export class WaveMoney {
       )
       .join(',')}]`;
 
-    const response = await this.transport.postForm(
+    // The spec sends amount and time_to_live_in_seconds as JSON integers and items as a JSON
+    // string; the amount text is written as a JSON number without passing through a float.
+    const fields: [string, string][] = [
+      ['merchant_id', JSON.stringify(this.config.merchantId)],
+      ['order_id', JSON.stringify(data.orderId)],
+      ['merchant_reference_id', JSON.stringify(data.merchantReferenceId)],
+      ['frontend_result_url', JSON.stringify(data.returnUrl)],
+      ['backend_result_url', JSON.stringify(data.callbackUrl)],
+      ['amount', amount],
+      ['time_to_live_in_seconds', ttl],
+      ['payment_description', JSON.stringify(data.description)],
+      ['currency', JSON.stringify(CURRENCY)],
+      [
+        'hash',
+        JSON.stringify(
+          this.hash([
+            ttl,
+            this.config.merchantId,
+            data.orderId,
+            amount,
+            data.callbackUrl,
+            data.merchantReferenceId,
+          ]),
+        ),
+      ],
+      ['merchant_name', JSON.stringify(data.merchantName ?? this.config.merchantName)],
+      ['items', JSON.stringify(items)],
+    ];
+    for (const [name, field] of ADDITIONAL_FIELDS) {
+      const value = data[field];
+      if (typeof value === 'string' && value !== '') {
+        fields.push([name, JSON.stringify(value)]);
+      }
+    }
+
+    const response = await this.transport.postJsonText(
       `${this.config.baseUrl}/payment`,
-      {
-        time_to_live_in_seconds: ttl,
-        merchant_id: this.config.merchantId,
-        order_id: data.orderId,
-        merchant_reference_id: data.merchantReferenceId,
-        frontend_result_url: data.returnUrl,
-        backend_result_url: data.callbackUrl,
-        amount,
-        payment_description: data.description,
-        merchant_name: data.merchantName ?? this.config.merchantName,
-        items,
-        hash: this.hash([
-          ttl,
-          this.config.merchantId,
-          data.orderId,
-          amount,
-          data.callbackUrl,
-          data.merchantReferenceId,
-        ]),
-      },
+      `{${fields.map(([name, value]) => `${JSON.stringify(name)}:${value}`).join(',')}}`,
       {},
       options.signal,
     );
@@ -327,7 +378,7 @@ export class WaveMoney {
     if (!response.successful() || get(body, 'message') !== 'success' || transactionId === '') {
       const message = errorMessage(body);
       throw new ApiError(
-        `Wave Money payment request failed with HTTP ${response.status}: ${message}`,
+        `Wave Pay payment request failed with HTTP ${response.status}: ${message}`,
         {
           gatewayCode: 'errors' in body ? 'VALIDATION_ERROR' : optional(body, 'message'),
           gatewayMessage: message,
@@ -347,8 +398,8 @@ export class WaveMoney {
 
   /**
    * Verifies Wave's callback. Only `PAYMENT_CONFIRMED` means the customer paid. `orderId` falls
-   * back to `merchantReferenceId` when it is missing, null or empty, because Wave marks `orderId` as
-   * optional. A hashed field holding an object or array fails verification, and so does a callback
+   * back to `merchantReferenceId` when it is missing, null or empty, as a safeguard: earlier Wave
+   * documents marked `orderId` optional. A hashed field holding an object or array fails verification, and so does a callback
    * whose `amount` is not a non-negative decimal, which has neither id, or whose `orderId` or
    * `merchantReferenceId` holds anything but letters, digits, `_` and `-`: Wave hashes the values
    * with no separator, so only well-formed values pin each one down.
@@ -373,7 +424,7 @@ export class WaveMoney {
       [orderId, merchantReferenceId].some((id) => id !== '' && !ID.test(id))
     ) {
       throw new SignatureVerificationError(
-        'Wave Money callback hash verification failed.',
+        'Wave Pay callback hash verification failed.',
         toPlainObject(payload),
       );
     }

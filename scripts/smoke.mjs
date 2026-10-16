@@ -2,7 +2,7 @@
 import assert from 'node:assert';
 import * as root from '@laranex/myanmar-payments';
 import { KbzPay } from '@laranex/myanmar-payments/kbz-pay';
-import '@laranex/myanmar-payments/wave-money';
+import '@laranex/myanmar-payments/wave-pay';
 import '@laranex/myanmar-payments/aya-pay';
 import '@laranex/myanmar-payments/yoma-mmqr';
 import '@laranex/myanmar-payments/cyber-source';

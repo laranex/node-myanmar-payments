@@ -13,13 +13,13 @@ import {
   KbzPay,
   KbzPayConfig,
   SignatureVerificationError,
-  WaveMoney,
-  WaveMoneyConfig,
+  WavePay,
+  WavePayConfig,
   YomaMmqr,
   YomaMmqrConfig,
   type PaymentCallback,
   type TokenCache,
-  type WaveMoneyPaymentData,
+  type WavePayPaymentData,
 } from '../src/index.js';
 import { caught, FakeFetch, fixture, gatewayConfig } from './helpers.js';
 
@@ -65,7 +65,7 @@ interface Vectors {
     variable: string;
     cases: { config: string; payment: number | null; timeout_express: string }[];
   };
-  wave_money_request_overrides: {
+  wave_pay_request_overrides: {
     config: {
       merchant_id: string;
       secret_key: string;
@@ -80,8 +80,65 @@ interface Vectors {
       description: string;
       items: [string, number][];
     };
-    cases: (WaveOverrides & { expected: Record<string, string> })[];
+    cases: (WaveOverrides & { expected: Record<string, unknown> })[];
     invalid: (WaveOverrides & { setting: 'merchant_name' | 'time_to_live_in_seconds' })[];
+  };
+  wave_pay_request: {
+    config: {
+      merchant_id: string;
+      secret_key: string;
+      merchant_name: string;
+      base_url: string;
+      base_redirect_url: string;
+      time_to_live_in_seconds: number;
+    };
+    response: { status: number; body: Record<string, unknown> };
+    expected: {
+      method: string;
+      url: string;
+      headers: Record<string, string>;
+      redirect_url: string;
+      gateway_reference: string;
+    };
+    cases: { name: string; data: WaveData; expected_body: Record<string, unknown> }[];
+  };
+  wave_pay_limits: {
+    data: WaveData;
+    valid: WaveLimit[];
+    invalid: WaveLimit[];
+  };
+}
+
+interface WaveData {
+  order_id: string;
+  merchant_reference_id: string;
+  callback_url: string;
+  return_url: string;
+  description: string;
+  items: [string, number][];
+  additional_field_3?: string | null;
+  additional_field_4?: string | null;
+  additional_field_5?: string | null;
+}
+
+interface WaveLimit {
+  field: keyof WavePayPaymentData;
+  value: string;
+  error: string | null;
+}
+
+function waveData(data: WaveData, overrides: Partial<WavePayPaymentData> = {}): WavePayPaymentData {
+  return {
+    orderId: data.order_id,
+    callbackUrl: data.callback_url,
+    returnUrl: data.return_url,
+    description: data.description,
+    items: data.items.map(([name, amount]) => ({ name, amount })),
+    merchantReferenceId: data.merchant_reference_id,
+    additionalField3: data.additional_field_3,
+    additionalField4: data.additional_field_4,
+    additionalField5: data.additional_field_5,
+    ...overrides,
   };
 }
 
@@ -113,11 +170,11 @@ const handlers: Record<string, (request: CallbackRequest) => PaymentCallback> = 
     new KbzPay(gatewayConfig.kbzPay({ appKey: secrets.kbz_pay_app_key as string })).handleCallback(
       request,
     ),
-  wave_money: (request) =>
-    new WaveMoney(
-      gatewayConfig.waveMoney({
+  wave_pay: (request) =>
+    new WavePay(
+      gatewayConfig.wavePay({
         merchantId: 'merchant',
-        secretKey: secrets.wave_money_secret_key as string,
+        secretKey: secrets.wave_pay_secret_key as string,
       }),
     ).handleCallback(request),
   aya_pay: (request) =>
@@ -194,13 +251,13 @@ describe('parity vectors', () => {
     const { env, seconds, urls, uat } = vectors.config;
     const check = (variables: Record<string, string>, expected: typeof urls): void => {
       const kbz = KbzPayConfig.fromEnv(variables);
-      const wave = WaveMoneyConfig.fromEnv(variables);
+      const wave = WavePayConfig.fromEnv(variables);
       const aya = AyaPayConfig.fromEnv(variables);
       const yoma = YomaMmqrConfig.fromEnv(variables);
       const cyber = CyberSourceConfig.fromEnv(variables);
       expect({ api_url: kbz.apiUrl, pwa_url: kbz.pwaUrl }).toEqual(expected.kbz_pay);
       expect({ base_url: wave.baseUrl, base_redirect_url: wave.baseRedirectUrl }).toEqual(
-        expected.wave_money,
+        expected.wave_pay,
       );
       expect({ base_url: aya.baseUrl }).toEqual(expected.aya_pay);
       expect({ base_url: yoma.baseUrl }).toEqual(expected.yoma_mmqr);
@@ -216,7 +273,7 @@ describe('parity vectors', () => {
 
   const fromEnv: Record<string, (env: Record<string, string>) => unknown> = {
     kbz_pay: (env) => KbzPayConfig.fromEnv(env),
-    wave_money: (env) => WaveMoneyConfig.fromEnv(env),
+    wave_pay: (env) => WavePayConfig.fromEnv(env),
     aya_pay: (env) => AyaPayConfig.fromEnv(env),
     yoma_mmqr: (env) => YomaMmqrConfig.fromEnv(env),
     cyber_source: (env) => CyberSourceConfig.fromEnv(env),
@@ -253,7 +310,7 @@ describe('parity vectors', () => {
       if (value !== null) {
         env[variable] = value;
       }
-      for (const gateway of ['kbz_pay', 'wave_money', 'aya_pay', 'yoma_mmqr']) {
+      for (const gateway of ['kbz_pay', 'wave_pay', 'aya_pay', 'yoma_mmqr']) {
         const build = fromEnv[gateway] as (env: Record<string, string>) => {
           timeoutSeconds: number;
         };
@@ -321,7 +378,7 @@ describe('parity vectors', () => {
     const decimal = Amount.parse('1000.50');
     expect(
       errorsOf(() =>
-        WaveMoney.validate({
+        WavePay.validate({
           orderId: 'ORDER_1',
           callbackUrl: 'https://shop.test/cb',
           returnUrl: 'https://shop.test/done',
@@ -346,9 +403,9 @@ describe('parity vectors', () => {
     ).toBe(messages.kbz_time_to_live_range);
   });
 
-  it('applies per-payment Wave Money overrides like every other SDK', async () => {
-    const { config, data, cases, invalid } = vectors.wave_money_request_overrides;
-    const build = (overrides: WaveOverrides): WaveMoneyPaymentData => ({
+  it('applies per-payment Wave Pay overrides like every other SDK', async () => {
+    const { config, data, cases, invalid } = vectors.wave_pay_request_overrides;
+    const build = (overrides: WaveOverrides): WavePayPaymentData => ({
       orderId: data.order_id,
       callbackUrl: data.callback_url,
       returnUrl: data.return_url,
@@ -361,8 +418,8 @@ describe('parity vectors', () => {
 
     for (const testCase of cases) {
       const fake = new FakeFetch({ body: { message: 'success', transaction_id: 'T1' } });
-      const gateway = new WaveMoney(
-        gatewayConfig.waveMoney({
+      const gateway = new WavePay(
+        gatewayConfig.wavePay({
           merchantId: config.merchant_id,
           secretKey: config.secret_key,
           merchantName: config.merchant_name,
@@ -373,17 +430,70 @@ describe('parity vectors', () => {
 
       await gateway.initiate(build(testCase));
 
-      const form = Object.fromEntries(fake.last().form());
-      expect(form).toMatchObject(testCase.expected);
+      expect(fake.last().json()).toMatchObject(testCase.expected);
     }
 
     const fields = { merchant_name: 'merchantName', time_to_live_in_seconds: 'timeToLiveSeconds' };
     for (const testCase of invalid) {
-      const error = caught(() => WaveMoney.validate(build(testCase)));
+      const error = caught(() => WavePay.validate(build(testCase)));
       expect(error).toBeInstanceOf(InvalidPaymentDataError);
       expect(Object.keys((error as InvalidPaymentDataError).errors)).toEqual([
         fields[testCase.setting],
       ]);
+    }
+  });
+
+  it('sends the same Wave Pay JSON request as every other SDK', async () => {
+    const { config, response, expected, cases } = vectors.wave_pay_request;
+    for (const testCase of cases) {
+      const fake = new FakeFetch({ status: response.status, body: response.body });
+      const gateway = new WavePay(
+        {
+          merchantId: config.merchant_id,
+          secretKey: config.secret_key,
+          merchantName: config.merchant_name,
+          baseUrl: config.base_url,
+          baseRedirectUrl: config.base_redirect_url,
+          timeToLiveSeconds: config.time_to_live_in_seconds,
+        },
+        { fetch: fake.fetch },
+      );
+
+      const payment = await gateway.initiate(waveData(testCase.data));
+
+      const request = fake.last();
+      expect(request.method, testCase.name).toBe(expected.method);
+      expect(request.url, testCase.name).toBe(expected.url);
+      expect(
+        Object.fromEntries(
+          Object.keys(expected.headers).map((name) => [name, request.headers[name.toLowerCase()]]),
+        ),
+        testCase.name,
+      ).toEqual(expected.headers);
+      expect(Object.entries(request.json()), testCase.name).toEqual(
+        Object.entries(testCase.expected_body),
+      );
+      expect(payment.url, testCase.name).toBe(expected.redirect_url);
+      expect(payment.gatewayReference, testCase.name).toBe(expected.gateway_reference);
+    }
+  });
+
+  it('enforces the same Wave Pay field limits as every other SDK', () => {
+    const { data, valid, invalid } = vectors.wave_pay_limits;
+    for (const testCase of valid) {
+      expect(
+        () => WavePay.validate(waveData(data, { [testCase.field]: testCase.value })),
+        testCase.field,
+      ).not.toThrow();
+    }
+    for (const testCase of invalid) {
+      const error = caught(() =>
+        WavePay.validate(waveData(data, { [testCase.field]: testCase.value })),
+      );
+      expect(error, testCase.field).toBeInstanceOf(InvalidPaymentDataError);
+      expect((error as InvalidPaymentDataError).errors, testCase.field).toEqual({
+        [testCase.field]: testCase.error,
+      });
     }
   });
 

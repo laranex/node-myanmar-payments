@@ -552,10 +552,10 @@ describe('errors', () => {
 
     const config = new ConfigurationError('kbz_pay', 'app_key');
     expect(config.message).toBe('The kbz_pay configuration is missing [app_key].');
-    const invalidSetting = new ConfigurationError('wave_money', 'time_to_live_in_seconds', true);
-    expect(invalidSetting).toMatchObject({ gateway: 'wave_money', key: 'time_to_live_in_seconds' });
+    const invalidSetting = new ConfigurationError('wave_pay', 'time_to_live_in_seconds', true);
+    expect(invalidSetting).toMatchObject({ gateway: 'wave_pay', key: 'time_to_live_in_seconds' });
     expect(invalidSetting.message).toBe(
-      'The wave_money configuration [time_to_live_in_seconds] must be a whole number greater than 0.',
+      'The wave_pay configuration [time_to_live_in_seconds] must be a whole number greater than 0.',
     );
 
     for (const error of [invalid, api, signature, config]) {

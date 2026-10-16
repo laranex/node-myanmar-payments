@@ -6,7 +6,7 @@ const PATTERN = /^\d+(\.\d+)?$/;
  * An exact, non-negative money amount, kept as decimal text so it is never rounded through a
  * floating-point number. Build one with {@link Amount.kyat} for whole amounts or
  * {@link Amount.parse} for decimal ones; each gateway then checks it against that gateway's
- * documented rules (Wave Money, AYA and Yoma MMQR only accept whole kyat, KBZ Pay up to 2 decimal
+ * documented rules (Wave Pay, AYA and Yoma MMQR only accept whole kyat, KBZ Pay up to 2 decimal
  * places, CyberSource any).
  *
  * Amounts are immutable. `JSON.stringify` writes them as strings, e.g. `"1000.50"`.

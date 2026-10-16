@@ -1,7 +1,7 @@
 ---
 name: node-myanmar-payments
 description: >
-  Integrate Myanmar payment gateways (KBZ Pay, Wave Money, AYA Pay, Yoma MMQR, CyberSource) in a Node.js or TypeScript app with @laranex/myanmar-payments.
+  Integrate Myanmar payment gateways (KBZ Pay, Wave Pay, AYA Pay, Yoma MMQR, CyberSource) in a Node.js or TypeScript app with @laranex/myanmar-payments.
 license: MIT
 metadata:
   author: Nay Thu Khant
@@ -11,7 +11,7 @@ metadata:
 
 ## When to use
 
-Use this skill when a Node.js or TypeScript app takes payments through KBZ Pay, Wave Money, AYA Payment Gateway, Yoma MMQR or CyberSource. Start payments and verify callbacks with the package's typed API; never build gateway signatures by hand. In NestJS, use `@laranex/nestjs-myanmar-payments` instead; it wraps this package.
+Use this skill when a Node.js or TypeScript app takes payments through KBZ Pay, Wave Pay, AYA Payment Gateway, Yoma MMQR or CyberSource. Start payments and verify callbacks with the package's typed API; never build gateway signatures by hand. In NestJS, use `@laranex/nestjs-myanmar-payments` instead; it wraps this package.
 
 ## Install
 
@@ -19,23 +19,23 @@ Use this skill when a Node.js or TypeScript app takes payments through KBZ Pay, 
 npm install @laranex/myanmar-payments
 ```
 
-Requires Node.js 20+ and has no runtime dependencies (global `fetch`, `node:crypto`); it ships ESM and CommonJS with types. Import shared types from the root and each gateway from the root or its subpath: `@laranex/myanmar-payments/kbz-pay`, `/wave-money`, `/aya-pay`, `/yoma-mmqr` and `/cyber-source`.
+Requires Node.js 20+ and has no runtime dependencies (global `fetch`, `node:crypto`); it ships ESM and CommonJS with types. Import shared types from the root and each gateway from the root or its subpath: `@laranex/myanmar-payments/kbz-pay`, `/wave-pay`, `/aya-pay`, `/yoma-mmqr` and `/cyber-source`.
 
 ## Configure
 
-`MyanmarPayments.fromEnv(process.env)` reads `KBZ_PAY_*`, `WAVE_MONEY_*`, `AYA_PAY_*`, `YOMA_MMQR_*` and `CYBER_SOURCE_*` plus `MYANMAR_PAYMENTS_HTTP_TIMEOUT` (the same variables as the PHP, Go and Python SDKs). Every setting of a gateway you use is required and has no default, except the HTTP timeout `timeoutSeconds` / `MYANMAR_PAYMENTS_HTTP_TIMEOUT` (seconds, for every gateway except CyberSource), which defaults to 30 (`DEFAULT_TIMEOUT_SECONDS`); an explicit value must be a whole number greater than 0. That includes the credentials, the URLs (`KBZ_PAY_BASE_URL`, `KBZ_PAY_PWA_BASE_REDIRECT_URL`, `WAVE_MONEY_BASE_URL`, `WAVE_MONEY_BASE_REDIRECT_URL`, `AYA_PAY_BASE_URL`, `YOMA_MMQR_BASE_URL`, `CYBER_SOURCE_BASE_URL`: production's or the gateway's UAT ones; the config classes' `PRODUCTION_*` constants name production's), the time to live (`KBZ_PAY_TIME_TO_LIVE_IN_MINUTES`, KBZ's `timeToLiveMinutes`, 1 to 120; `WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS`, Wave's `timeToLiveSeconds`, greater than 0; a payment's `timeToLiveMinutes` / `timeToLiveSeconds` overrides them), `YOMA_MMQR_WEBHOOK_SECRET` (Yoma's `webhookSecret`; every Yoma callback must carry it in `X-Webhook-Secret`), `WAVE_MONEY_MERCHANT_NAME` and `YOMA_MMQR_API_VERSION` (e.g. `v1rc`). Wave Money requests payments at `WAVE_MONEY_BASE_URL`'s `/payment` and sends the customer to `WAVE_MONEY_BASE_REDIRECT_URL`'s `/authenticate`.
+`MyanmarPayments.fromEnv(process.env)` reads `KBZ_PAY_*`, `WAVE_PAY_*`, `AYA_PAY_*`, `YOMA_MMQR_*` and `CYBER_SOURCE_*` plus `MYANMAR_PAYMENTS_HTTP_TIMEOUT` (the same variables as the PHP, Go and Python SDKs). Every setting of a gateway you use is required and has no default, except the HTTP timeout `timeoutSeconds` / `MYANMAR_PAYMENTS_HTTP_TIMEOUT` (seconds, for every gateway except CyberSource), which defaults to 30 (`DEFAULT_TIMEOUT_SECONDS`); an explicit value must be a whole number greater than 0. That includes the credentials, the URLs (`KBZ_PAY_BASE_URL`, `KBZ_PAY_PWA_BASE_REDIRECT_URL`, `WAVE_PAY_BASE_URL`, `WAVE_PAY_BASE_REDIRECT_URL`, `AYA_PAY_BASE_URL`, `YOMA_MMQR_BASE_URL`, `CYBER_SOURCE_BASE_URL`: production's or the gateway's UAT ones; the config classes' `PRODUCTION_*` constants name production's), the time to live (`KBZ_PAY_TIME_TO_LIVE_IN_MINUTES`, KBZ's `timeToLiveMinutes`, 1 to 120; `WAVE_PAY_TIME_TO_LIVE_IN_SECONDS`, Wave's `timeToLiveSeconds`, greater than 0; a payment's `timeToLiveMinutes` / `timeToLiveSeconds` overrides them), `YOMA_MMQR_WEBHOOK_SECRET` (Yoma's `webhookSecret`; every Yoma callback must carry it in `X-Webhook-Secret`), `WAVE_PAY_MERCHANT_NAME` and `YOMA_MMQR_API_VERSION` (e.g. `v1rc`). Wave Pay requests payments at `WAVE_PAY_BASE_URL`'s `/payment` and sends the customer to `WAVE_PAY_BASE_REDIRECT_URL`'s `/authenticate`.
 
 ```ts
 import { MyanmarPayments } from '@laranex/myanmar-payments';
 
 const payments = MyanmarPayments.fromEnv(process.env); // create once, share across requests
-const kbz = payments.kbzPay(); // also waveMoney(), ayaPay(), yomaMmqr(), cyberSource()
+const kbz = payments.kbzPay(); // also wavePay(), ayaPay(), yomaMmqr(), cyberSource()
 ```
 
 - Or build one gateway: `new KbzPay(new KbzPayConfig({ appId, appKey, merchantCode, apiUrl, pwaUrl, timeToLiveMinutes }))`, `KbzPay.fromEnv()` or `new KbzPay(KbzPayConfig.fromEnv(process.env))`.
 - Or pass the settings directly: gateways and `new MyanmarPayments({ kbzPay: { appId, appKey, merchantCode, apiUrl, pwaUrl, timeToLiveMinutes } })` take config objects or plain option objects; whole-number settings also take text such as `'30'`.
 - Options (second argument): `{ httpClient, fetch }`. Without `httpClient`, the gateway uses `fetch` with the config's `timeoutSeconds`; a client you pass keeps its own timeout. Yoma and the facade also take `tokenCache` (any `TokenCache`, default `MemoryTokenCache`; back it with Redis when you run several processes).
-- A missing or blank setting throws `ConfigurationError` (`gateway`, `key`), e.g. `The wave_money configuration is missing [base_redirect_url].`; a time setting that is not a whole number greater than 0 throws it too.
+- A missing or blank setting throws `ConfigurationError` (`gateway`, `key`), e.g. `The wave_pay configuration is missing [base_redirect_url].`; a time setting that is not a whole number greater than 0 throws it too.
 
 ## Use
 
@@ -45,7 +45,7 @@ Amounts are `Amount.kyat(1000)`, `Amount.parse('1000.50')` or a whole `number`/`
 
 ### Start a payment
 
-Each gateway takes a data object (`KbzPayPaymentData`, `WaveMoneyPaymentData` with `WaveMoneyItem`s, `AyaPayPaymentData` with an `AyaPayMethod`, `YomaMmqrPaymentData`, `CyberSourcePaymentData` with a `CyberSourceTransactionType`) and returns a typed result:
+Each gateway takes a data object (`KbzPayPaymentData`, `WavePayPaymentData` with `WavePayItem`s, `AyaPayPaymentData` with an `AyaPayMethod`, `YomaMmqrPaymentData`, `CyberSourcePaymentData` with a `CyberSourceTransactionType`) and returns a typed result:
 
 ```ts
 import { Amount } from '@laranex/myanmar-payments';
@@ -58,7 +58,7 @@ const payment = await kbz.pwa({
 res.writeHead(302, { Location: payment.url }).end();
 ```
 
-- `RedirectPayment` (`url`) from `kbz.pwa(data)` and `wave.initiate(data)`. Wave's `orderId` and `merchantReferenceId` take only letters, digits, `_` and `-`; Wave fills `data.merchantReferenceId` when empty; store it. Pass `merchantName` or `timeToLiveSeconds` in Wave's payment data to override the configured `WAVE_MONEY_MERCHANT_NAME` or `WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS` for that one payment (the merchant name setting stays required).
+- `RedirectPayment` (`url`) from `kbz.pwa(data)` and `wave.initiate(data)`. Wave's `orderId` and `merchantReferenceId` take only letters, digits, `_` and `-` (at most 100 characters); `callbackUrl`, `returnUrl` and `description` take at most 255. Wave fills `data.merchantReferenceId` when empty; store it. Pass `merchantName` or `timeToLiveSeconds` in Wave's payment data to override the configured `WAVE_PAY_MERCHANT_NAME` or `WAVE_PAY_TIME_TO_LIVE_IN_SECONDS` for that one payment (the merchant name setting stays required), and `additionalField3` to `additionalField5` (at most 50 characters each) for extra information Wave echoes in the callback.
 - `FormPayment` from `aya.initiate(data)` and `cyberSource.initiate(data)` (no network call): send `payment.toHtml()` as an auto-submitting page (`payment.toHtml(nonce)` adds a CSP nonce to its inline script), or render `action`, `fields` and `enctype` yourself.
 - `QrPayment` from `kbz.qr(data)` (encode `qrString`) and `yoma.initiate(data)` (`qrImageDataUri()`, `expiresAt`, `reference`). A Yoma QR lives `YomaMmqr.QR_LIFETIME_SECONDS` (120); renew it with `yoma.renewQr(orderId)`.
 - `AppPayment` from `kbz.app(data)`: `res.json(payment)` sends `orderId`, `orderInfo`, `sign` and `signType` to your mobile app.
@@ -95,7 +95,7 @@ try {
 
 ### Check status and handle errors
 
-- `kbz.status(orderId)`, `aya.status(orderId)` and `yoma.status(reference)` return `PaymentStatusResult` with `status` and `isSuccessful()`. Wave Money and CyberSource have no status API.
+- `kbz.status(orderId)`, `aya.status(orderId)` and `yoma.status(reference)` return `PaymentStatusResult` with `status` and `isSuccessful()`. Wave Pay and CyberSource have no status API.
 - Statuses: `PaymentStatus.Successful`, `Pending`, `Failed`, `Canceled`, `Expired`, `Unknown`; `PaymentStatus.isFinal(status)`.
 - Gateway failures throw `ApiError` (`gatewayCode`, `gatewayMessage`, `httpStatus`, `raw`; network errors and aborts are the `cause`). All errors extend `PaymentError`.
 

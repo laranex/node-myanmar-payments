@@ -186,7 +186,7 @@ describe('Validator', () => {
     expect(errors.ftp).toBe('The ftp field must be a valid http or https URL.');
   });
 
-  const whole = { gateway: 'Wave Money', maxDecimals: 0 };
+  const whole = { gateway: 'Wave Pay', maxDecimals: 0 };
   const twoPlaces = { gateway: 'KBZ Pay', maxDecimals: 2 };
   const cyberSource = { gateway: 'CyberSource', maxDecimals: null, maxLength: 15, allowZero: true };
 
@@ -227,7 +227,7 @@ describe('Validator', () => {
       'decimal where whole required',
       Amount.parse('10.5'),
       whole,
-      'Wave Money does not accept decimal amounts; the amount field must be a whole number.',
+      'Wave Pay does not accept decimal amounts; the amount field must be a whole number.',
     ],
     [
       'too many decimals',
@@ -267,20 +267,20 @@ describe('environment', () => {
   });
 
   it('reads a required whole number of seconds', () => {
-    expect(requireSeconds('wave_money', 'time_to_live_in_seconds', 300)).toBe(300);
-    expect(requireSeconds('wave_money', 'time_to_live_in_seconds', ' +30 ')).toBe(30);
+    expect(requireSeconds('wave_pay', 'time_to_live_in_seconds', 300)).toBe(300);
+    expect(requireSeconds('wave_pay', 'time_to_live_in_seconds', ' +30 ')).toBe(30);
     for (const value of [undefined, null, '', '   ']) {
-      expect(caught(() => requireSeconds('wave_money', 'ttl', value))).toMatchObject({
-        gateway: 'wave_money',
+      expect(caught(() => requireSeconds('wave_pay', 'ttl', value))).toMatchObject({
+        gateway: 'wave_pay',
         key: 'ttl',
-        message: 'The wave_money configuration is missing [ttl].',
+        message: 'The wave_pay configuration is missing [ttl].',
       });
     }
     for (const value of [0, -5, 1.5, Number.NaN, '0', '-5', 'thirty', '1.5', true, {}, '1e3']) {
-      expect(caught(() => requireSeconds('wave_money', 'ttl', value))).toMatchObject({
-        gateway: 'wave_money',
+      expect(caught(() => requireSeconds('wave_pay', 'ttl', value))).toMatchObject({
+        gateway: 'wave_pay',
         key: 'ttl',
-        message: 'The wave_money configuration [ttl] must be a whole number greater than 0.',
+        message: 'The wave_pay configuration [ttl] must be a whole number greater than 0.',
       });
     }
     expect(caught(() => requireSeconds('kbz_pay', 'ttl', '99999999999999999999'))).toBeInstanceOf(

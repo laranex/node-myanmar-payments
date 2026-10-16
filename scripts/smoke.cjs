@@ -2,7 +2,7 @@
 const assert = require('node:assert');
 const root = require('@laranex/myanmar-payments');
 const { KbzPay } = require('@laranex/myanmar-payments/kbz-pay');
-for (const path of ['wave-money', 'aya-pay', 'yoma-mmqr', 'cyber-source']) {
+for (const path of ['wave-pay', 'aya-pay', 'yoma-mmqr', 'cyber-source']) {
   require(`@laranex/myanmar-payments/${path}`);
 }
 assert.strictEqual(KbzPay, root.KbzPay);

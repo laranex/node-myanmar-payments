@@ -10,17 +10,13 @@ import {
   type CyberSourceConfigOptions,
 } from './cyber-source/cyber-source.js';
 import { KbzPay, KbzPayConfig, type KbzPayConfigOptions } from './kbz-pay/kbz-pay.js';
-import {
-  WaveMoney,
-  WaveMoneyConfig,
-  type WaveMoneyConfigOptions,
-} from './wave-money/wave-money.js';
+import { WavePay, WavePayConfig, type WavePayConfigOptions } from './wave-pay/wave-pay.js';
 import { YomaMmqr, YomaMmqrConfig, type YomaMmqrConfigOptions } from './yoma-mmqr/yoma-mmqr.js';
 
 /** The configuration of every gateway; configure only the ones you use. */
 export interface MyanmarPaymentsConfig {
   kbzPay?: KbzPayConfig | KbzPayConfigOptions | undefined;
-  waveMoney?: WaveMoneyConfig | WaveMoneyConfigOptions | undefined;
+  wavePay?: WavePayConfig | WavePayConfigOptions | undefined;
   ayaPay?: AyaPayConfig | AyaPayConfigOptions | undefined;
   yomaMmqr?: YomaMmqrConfig | YomaMmqrConfigOptions | undefined;
   cyberSource?: CyberSourceConfig | CyberSourceConfigOptions | undefined;
@@ -40,14 +36,14 @@ type Source<T, O> = T | O | (() => T) | undefined;
  */
 export class MyanmarPayments {
   private kbzPayGateway: KbzPay | undefined;
-  private waveMoneyGateway: WaveMoney | undefined;
+  private wavePayGateway: WavePay | undefined;
   private ayaPayGateway: AyaPay | undefined;
   private yomaMmqrGateway: YomaMmqr | undefined;
   private cyberSourceGateway: CyberSource | undefined;
   private readonly options: MyanmarPaymentsOptions;
   private readonly sources: {
     kbzPay: Source<KbzPayConfig, KbzPayConfigOptions>;
-    waveMoney: Source<WaveMoneyConfig, WaveMoneyConfigOptions>;
+    wavePay: Source<WavePayConfig, WavePayConfigOptions>;
     ayaPay: Source<AyaPayConfig, AyaPayConfigOptions>;
     yomaMmqr: Source<YomaMmqrConfig, YomaMmqrConfigOptions>;
     cyberSource: Source<CyberSourceConfig, CyberSourceConfigOptions>;
@@ -59,7 +55,7 @@ export class MyanmarPayments {
   }
 
   /**
-   * Reads every gateway's configuration from environment variables (`KBZ_PAY_*`, `WAVE_MONEY_*`,
+   * Reads every gateway's configuration from environment variables (`KBZ_PAY_*`, `WAVE_PAY_*`,
    * `AYA_PAY_*`, `YOMA_MMQR_*`, `CYBER_SOURCE_*`) when the gateway is first used.
    */
   static fromEnv(
@@ -69,7 +65,7 @@ export class MyanmarPayments {
     const payments = new MyanmarPayments({}, options);
     Object.assign(payments.sources, {
       kbzPay: () => KbzPayConfig.fromEnv(env),
-      waveMoney: () => WaveMoneyConfig.fromEnv(env),
+      wavePay: () => WavePayConfig.fromEnv(env),
       ayaPay: () => AyaPayConfig.fromEnv(env),
       yomaMmqr: () => YomaMmqrConfig.fromEnv(env),
       cyberSource: () => CyberSourceConfig.fromEnv(env),
@@ -85,10 +81,10 @@ export class MyanmarPayments {
     ));
   }
 
-  /** The Wave Money gateway. Throws a `ConfigurationError` when it is not configured. */
-  waveMoney(): WaveMoney {
-    return (this.waveMoneyGateway ??= new WaveMoney(
-      resolve(this.sources.waveMoney, WaveMoneyConfig, 'wave_money', 'merchant_id'),
+  /** The Wave Pay gateway. Throws a `ConfigurationError` when it is not configured. */
+  wavePay(): WavePay {
+    return (this.wavePayGateway ??= new WavePay(
+      resolve(this.sources.wavePay, WavePayConfig, 'wave_pay', 'merchant_id'),
       this.options,
     ));
   }
