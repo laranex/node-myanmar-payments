@@ -14,27 +14,14 @@ import {
   YomaMmqr,
 } from '../src/index.js';
 import * as api from '../src/index.js';
-import { caught, FakeFetch } from './helpers.js';
+import { caught, FakeFetch, fixture, gatewayConfig } from './helpers.js';
 
 const full = {
-  kbzPay: { appId: 'a', appKey: 'b', merchantCode: 'c', timeoutSeconds: 30 },
-  waveMoney: {
-    merchantId: 'm',
-    secretKey: 's',
-    merchantName: 'Shop',
-    timeToLiveSeconds: 300,
-    timeoutSeconds: 30,
-  },
-  ayaPay: { appKey: 'k', appSecret: 's', timeoutSeconds: 30 },
-  yomaMmqr: {
-    merchantId: 'm',
-    clientId: 'c',
-    clientSecret: 's',
-    webhookHashKey: 'h',
-    apiVersion: 'v1rc',
-    timeoutSeconds: 30,
-  },
-  cyberSource: { profileId: 'p', accessKey: 'a', secretKey: 's' },
+  kbzPay: gatewayConfig.kbzPay(),
+  waveMoney: gatewayConfig.waveMoney(),
+  ayaPay: gatewayConfig.ayaPay(),
+  yomaMmqr: gatewayConfig.yomaMmqr(),
+  cyberSource: gatewayConfig.cyberSource(),
 };
 
 describe('MyanmarPayments', () => {
@@ -78,27 +65,17 @@ describe('MyanmarPayments', () => {
   );
 
   it('reads the environment lazily, only for the gateways used', () => {
-    const payments = MyanmarPayments.fromEnv({
-      KBZ_PAY_APP_ID: 'kp',
-      KBZ_PAY_APP_KEY: 'key',
-      KBZ_PAY_MERCHANT_CODE: '1',
-      WAVE_MONEY_MERCHANT_ID: 'm',
-      WAVE_MONEY_SECRET_KEY: 's',
-      WAVE_MONEY_MERCHANT_NAME: 'Shop',
-      WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS: '300',
-      MYANMAR_PAYMENTS_HTTP_TIMEOUT: '30',
-      AYA_PGW_APP_KEY: 'k',
-      AYA_PGW_APP_SECRET: 's',
-      YOMA_MMQR_MERCHANT_ID: 'm',
-      YOMA_MMQR_CLIENT_ID: 'c',
-      YOMA_MMQR_CLIENT_SECRET: 's',
-      YOMA_MMQR_WEBHOOK_HASHKEY: 'h',
-      YOMA_MMQR_API_VERSION: 'v1rc',
-    });
-    expect(payments.kbzPay().config.appId).toBe('kp');
+    const { env } = fixture<{ config: { env: Record<string, string> } }>(
+      'parity/vectors.json',
+    ).config;
+    const withoutCyberSource = Object.fromEntries(
+      Object.entries(env).filter(([name]) => !name.startsWith('CYBER_SOURCE_')),
+    );
+    const payments = MyanmarPayments.fromEnv(withoutCyberSource);
+    expect(payments.kbzPay().config.appId).toBe('kp123');
     expect(payments.waveMoney().config.merchantName).toBe('Shop');
-    expect(payments.ayaPay().config.appKey).toBe('k');
-    expect(payments.yomaMmqr().config.clientId).toBe('c');
+    expect(payments.ayaPay().config.appKey).toBe('app-key');
+    expect(payments.yomaMmqr().config.clientId).toBe('client');
     expect(caught(() => payments.cyberSource())).toMatchObject({
       gateway: 'cyber_source',
       key: 'profile_id',

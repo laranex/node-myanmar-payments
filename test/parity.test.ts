@@ -21,7 +21,7 @@ import {
   type TokenCache,
   type WaveMoneyPaymentData,
 } from '../src/index.js';
-import { caught, FakeFetch, fixture, rejected } from './helpers.js';
+import { caught, FakeFetch, fixture, gatewayConfig } from './helpers.js';
 
 /** The cross-SDK vectors php-, go-, node- and python-myanmar-payments all ship unchanged. */
 interface Vectors {
@@ -63,10 +63,8 @@ interface Vectors {
   };
   kbz_pay_time_to_live: {
     variable: string;
-    cases: { config: string | null; payment: number | null; timeout_express: string }[];
-    missing: TimeToLiveMissing;
+    cases: { config: string; payment: number | null; timeout_express: string }[];
   };
-  wave_money_time_to_live_missing: TimeToLiveMissing & { variable: string };
   wave_money_request_overrides: {
     config: {
       merchant_id: string;
@@ -87,12 +85,6 @@ interface Vectors {
   };
 }
 
-interface TimeToLiveMissing {
-  configs: (string | null)[];
-  field: string;
-  message: string;
-}
-
 interface WaveOverrides {
   merchant_name: string | null;
   time_to_live_in_seconds: number | null;
@@ -101,6 +93,7 @@ interface WaveOverrides {
 interface CallbackCase {
   name: string;
   content_type: string;
+  headers?: Record<string, string>;
   body: string;
   expected: {
     valid: boolean;
@@ -117,41 +110,31 @@ const secrets = vectors.secrets;
 
 const handlers: Record<string, (request: CallbackRequest) => PaymentCallback> = {
   kbz_pay: (request) =>
-    new KbzPay({
-      appId: 'kp123',
-      appKey: secrets.kbz_pay_app_key as string,
-      merchantCode: '100001',
-      timeoutSeconds: 30,
-    }).handleCallback(request),
+    new KbzPay(gatewayConfig.kbzPay({ appKey: secrets.kbz_pay_app_key as string })).handleCallback(
+      request,
+    ),
   wave_money: (request) =>
-    new WaveMoney({
-      merchantId: 'merchant',
-      secretKey: secrets.wave_money_secret_key as string,
-      merchantName: 'Shop',
-      timeToLiveSeconds: 300,
-      timeoutSeconds: 30,
-    }).handleCallback(request),
+    new WaveMoney(
+      gatewayConfig.waveMoney({
+        merchantId: 'merchant',
+        secretKey: secrets.wave_money_secret_key as string,
+      }),
+    ).handleCallback(request),
   aya_pay: (request) =>
-    new AyaPay({
-      appKey: 'app',
-      appSecret: secrets.aya_pay_app_secret as string,
-      timeoutSeconds: 30,
-    }).handleCallback(request),
+    new AyaPay(
+      gatewayConfig.ayaPay({ appSecret: secrets.aya_pay_app_secret as string }),
+    ).handleCallback(request),
   yoma_mmqr: (request) =>
-    new YomaMmqr({
-      merchantId: 'merchant',
-      clientId: 'client',
-      clientSecret: 'secret',
-      webhookHashKey: secrets.yoma_mmqr_webhook_hashkey as string,
-      apiVersion: 'v1rc',
-      timeoutSeconds: 30,
-    }).handleCallback(request),
+    new YomaMmqr(
+      gatewayConfig.yomaMmqr({
+        webhookHashKey: secrets.yoma_mmqr_webhook_hashkey as string,
+        webhookSecret: secrets.yoma_mmqr_webhook_secret as string,
+      }),
+    ).handleCallback(request),
   cyber_source: (request) =>
-    new CyberSource({
-      profileId: 'profile',
-      accessKey: 'access',
-      secretKey: secrets.cyber_source_secret_key as string,
-    }).handleCallback(request),
+    new CyberSource(
+      gatewayConfig.cyberSource({ secretKey: secrets.cyber_source_secret_key as string }),
+    ).handleCallback(request),
 };
 
 const callbackCases = Object.entries(vectors.callbacks).flatMap(([gateway, cases]) =>
@@ -159,22 +142,28 @@ const callbackCases = Object.entries(vectors.callbacks).flatMap(([gateway, cases
 );
 
 describe('parity vectors', () => {
-  it.each(callbackCases)('$gateway: $name', ({ gateway, content_type, body, expected }) => {
-    const request = new CallbackRequest({ body, headers: { 'Content-Type': content_type } });
-    const handle = handlers[gateway] as (request: CallbackRequest) => PaymentCallback;
+  it.each(callbackCases)(
+    '$gateway: $name',
+    ({ gateway, content_type, headers, body, expected }) => {
+      const request = new CallbackRequest({
+        body,
+        headers: { 'Content-Type': content_type, ...headers },
+      });
+      const handle = handlers[gateway] as (request: CallbackRequest) => PaymentCallback;
 
-    if (!expected.valid) {
-      expect(() => handle(request)).toThrow(SignatureVerificationError);
-      return;
-    }
+      if (!expected.valid) {
+        expect(() => handle(request)).toThrow(SignatureVerificationError);
+        return;
+      }
 
-    const callback = handle(request);
-    expect(callback.orderId).toBe(expected.order_id);
-    expect(callback.status).toBe(expected.status);
-    expect(callback.gatewayStatus).toBe(expected.gateway_status);
-    expect(callback.gatewayReference).toBe(expected.gateway_reference);
-    expect(callback.amount).toBe(expected.amount);
-  });
+      const callback = handle(request);
+      expect(callback.orderId).toBe(expected.order_id);
+      expect(callback.status).toBe(expected.status);
+      expect(callback.gatewayStatus).toBe(expected.gateway_status);
+      expect(callback.gatewayReference).toBe(expected.gateway_reference);
+      expect(callback.amount).toBe(expected.amount);
+    },
+  );
 
   it.each(vectors.amount_parse)('parses amount $input', ({ input, value }) => {
     if (value === null) {
@@ -201,7 +190,7 @@ describe('parity vectors', () => {
     }
   });
 
-  it('reads every gateway from the environment with production URLs', () => {
+  it('reads the production and UAT URLs like every other SDK', () => {
     const { env, seconds, urls, uat } = vectors.config;
     const check = (variables: Record<string, string>, expected: typeof urls): void => {
       const kbz = KbzPayConfig.fromEnv(variables);
@@ -210,7 +199,9 @@ describe('parity vectors', () => {
       const yoma = YomaMmqrConfig.fromEnv(variables);
       const cyber = CyberSourceConfig.fromEnv(variables);
       expect({ api_url: kbz.apiUrl, pwa_url: kbz.pwaUrl }).toEqual(expected.kbz_pay);
-      expect({ base_url: wave.baseUrl }).toEqual(expected.wave_money);
+      expect({ base_url: wave.baseUrl, base_redirect_url: wave.baseRedirectUrl }).toEqual(
+        expected.wave_money,
+      );
       expect({ base_url: aya.baseUrl }).toEqual(expected.aya_pay);
       expect({ base_url: yoma.baseUrl }).toEqual(expected.yoma_mmqr);
       expect({ base_url: cyber.baseUrl }).toEqual(expected.cyber_source);
@@ -283,18 +274,10 @@ describe('parity vectors', () => {
       { body: { access_token: 't', expires_in: 28800 } },
       { body: { refLabel: '1', paymentStatus: 'PENDING' } },
     );
-    const yoma = new YomaMmqr(
-      {
-        merchantId: 'm',
-        clientId: client_id,
-        clientSecret: 's',
-        webhookHashKey: 'h',
-        apiVersion: 'v1rc',
-        timeoutSeconds: 30,
-        baseUrl: base_url,
-      },
-      { fetch: fake.fetch, tokenCache: cache },
-    );
+    const yoma = new YomaMmqr(gatewayConfig.yomaMmqr({ clientId: client_id, baseUrl: base_url }), {
+      fetch: fake.fetch,
+      tokenCache: cache,
+    });
     await yoma.status('1');
     expect(keys).toEqual([key]);
   });
@@ -379,12 +362,12 @@ describe('parity vectors', () => {
     for (const testCase of cases) {
       const fake = new FakeFetch({ body: { message: 'success', transaction_id: 'T1' } });
       const gateway = new WaveMoney(
-        {
+        gatewayConfig.waveMoney({
           merchantId: config.merchant_id,
           secretKey: config.secret_key,
           merchantName: config.merchant_name,
           timeToLiveSeconds: config.time_to_live_in_seconds,
-        },
+        }),
         { fetch: fake.fetch },
       );
 
@@ -404,7 +387,7 @@ describe('parity vectors', () => {
     }
   });
 
-  it("takes KBZ Pay's time to live from the payment, then the configuration, like every other SDK", async () => {
+  it("takes KBZ Pay's time to live from the payment over the configuration like every other SDK", async () => {
     const { variable, cases } = vectors.kbz_pay_time_to_live;
     for (const testCase of cases) {
       const fake = new FakeFetch({
@@ -432,50 +415,10 @@ describe('parity vectors', () => {
       );
       expect(payment.expiresAt).toBeInstanceOf(Date);
     }
-
-    const { missing } = vectors.kbz_pay_time_to_live;
-    for (const value of missing.configs) {
-      const fake = new FakeFetch();
-      const env = envWith(variable, value);
-      const error = await rejected(
-        KbzPay.fromEnv(env, { fetch: fake.fetch }).qr({
-          orderId: 'ORDER_1',
-          amount: 1000,
-          callbackUrl: 'https://shop.test/cb',
-        }),
-      );
-      expect(error).toBeInstanceOf(InvalidPaymentDataError);
-      expect((error as InvalidPaymentDataError).errors).toEqual({
-        [missing.field]: missing.message,
-      });
-      expect(fake.requests).toEqual([]);
-    }
-  });
-
-  it('requires a Wave Money time to live from the payment or the configuration like every other SDK', async () => {
-    const { variable, configs, field, message } = vectors.wave_money_time_to_live_missing;
-    for (const value of configs) {
-      const fake = new FakeFetch();
-      const env = envWith(variable, value);
-      const data: WaveMoneyPaymentData = {
-        orderId: '100',
-        callbackUrl: 'https://shop.test/cb',
-        returnUrl: 'https://shop.test/done',
-        description: 'Order 100',
-        items: [{ name: 'Shoes', amount: 1000 }],
-      };
-      const error = await rejected(WaveMoney.fromEnv(env, { fetch: fake.fetch }).initiate(data));
-      expect(error).toBeInstanceOf(InvalidPaymentDataError);
-      expect((error as InvalidPaymentDataError).errors).toEqual({ [field]: message });
-      expect(fake.requests).toEqual([]);
-    }
   });
 });
 
-/** The shared config env with `variable` set to `value`, or left out when `value` is null. */
-function envWith(variable: string, value: string | null): Record<string, string> {
-  const env = Object.fromEntries(
-    Object.entries(vectors.config.env).filter(([key]) => key !== variable),
-  );
-  return value === null ? env : { ...env, [variable]: value };
+/** The shared config env with `variable` set to `value`. */
+function envWith(variable: string, value: string): Record<string, string> {
+  return { ...vectors.config.env, [variable]: value };
 }

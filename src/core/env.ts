@@ -36,19 +36,6 @@ export function requireSeconds(gateway: string, key: string, value: unknown): nu
   return seconds;
 }
 
-/**
- * An optional whole number of seconds: `undefined` when unset or blank, otherwise the same rules
- * as {@link requireSeconds}.
- *
- * @internal
- */
-export function optionalSeconds(gateway: string, key: string, value: unknown): number | undefined {
-  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
-    return undefined;
-  }
-  return requireSeconds(gateway, key, value);
-}
-
 /** The variable holding the HTTP timeout of every gateway that calls an API. @internal */
 export const HTTP_TIMEOUT_VARIABLE = 'MYANMAR_PAYMENTS_HTTP_TIMEOUT';
 
@@ -74,11 +61,6 @@ export function requireSetting(gateway: string, key: string, value: unknown): st
     throw new ConfigurationError(gateway, key);
   }
   return value;
-}
-
-/** A trimmed optional string, `undefined` when blank. @internal */
-export function optionalSetting(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() !== '' ? value : undefined;
 }
 
 /** Removes trailing slashes. @internal */

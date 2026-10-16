@@ -9,10 +9,11 @@ import {
   CyberSourceTransactionType,
   InvalidPaymentDataError,
   SignatureVerificationError,
+  type CyberSourceConfigOptions,
   type CyberSourcePaymentData,
   type PaymentStatus,
 } from '../src/index.js';
-import { caught, hmacBase64 } from './helpers.js';
+import { caught, gatewayConfig, hmacBase64 } from './helpers.js';
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -24,7 +25,7 @@ afterEach(() => {
 });
 
 function gateway(): CyberSource {
-  return new CyberSource({ profileId: 'profile', accessKey: 'access', secretKey: 'secret' });
+  return new CyberSource(gatewayConfig.cyberSource());
 }
 
 function signature(fields: Record<string, string>): string {
@@ -399,16 +400,29 @@ describe('CyberSource required payment fields', () => {
 });
 
 describe('CyberSourceConfig', () => {
-  it('defaults to production and names a missing key', () => {
-    expect(new CyberSourceConfig({ profileId: 'p', accessKey: 'a', secretKey: 's' }).baseUrl).toBe(
-      CyberSourceConfig.PRODUCTION_URL,
-    );
+  it('requires every setting and names the production URL', () => {
     expect(
-      caught(() => new CyberSourceConfig({ profileId: '', accessKey: 'a', secretKey: 's' })),
+      new CyberSourceConfig(
+        gatewayConfig.cyberSource({ baseUrl: `${CyberSourceConfig.PRODUCTION_URL}/` }),
+      ).baseUrl,
+    ).toBe('https://secureacceptance.cybersource.com');
+    expect(
+      caught(() => new CyberSourceConfig(gatewayConfig.cyberSource({ profileId: '' }))),
     ).toMatchObject({
       gateway: 'cyber_source',
       key: 'profile_id',
     });
+    for (const baseUrl of [undefined, '', '   ']) {
+      const options = {
+        ...gatewayConfig.cyberSource(),
+        baseUrl,
+      } as unknown as CyberSourceConfigOptions;
+      expect(caught(() => new CyberSourceConfig(options))).toMatchObject({
+        gateway: 'cyber_source',
+        key: 'base_url',
+        message: 'The cyber_source configuration is missing [base_url].',
+      });
+    }
   });
 
   it('reads the environment', () => {
@@ -423,6 +437,11 @@ describe('CyberSourceConfig', () => {
       baseUrl: 'https://cs.test',
     });
     expect(CyberSource.fromEnv(env).initiate(base).action).toBe('https://cs.test/pay');
+    const { CYBER_SOURCE_BASE_URL: _baseUrl, ...withoutBaseUrl } = env;
+    expect(caught(() => CyberSourceConfig.fromEnv(withoutBaseUrl))).toMatchObject({
+      gateway: 'cyber_source',
+      key: 'base_url',
+    });
     for (const [key, value] of Object.entries(env)) {
       vi.stubEnv(key, value);
     }
@@ -437,8 +456,8 @@ describe('CyberSourceConfig', () => {
     expect(subpath.CyberSource).toBe(CyberSource);
     expect(subpath.CyberSourceTransactionType.Sale).toBe('sale');
     expect(
-      new CyberSource(new CyberSourceConfig({ profileId: 'p', accessKey: 'a', secretKey: 's' }))
-        .config.profileId,
+      new CyberSource(new CyberSourceConfig(gatewayConfig.cyberSource({ profileId: 'p' }))).config
+        .profileId,
     ).toBe('p');
   });
 });

@@ -17,7 +17,7 @@ import {
   type PaymentStatus,
 } from '../src/index.js';
 import * as subpath from '../src/kbz-pay/index.js';
-import { caught, FakeFetch, fixture, rejected, type Reply } from './helpers.js';
+import { caught, FakeFetch, fixture, gatewayConfig, rejected, type Reply } from './helpers.js';
 
 const NOW = 1536637503;
 
@@ -30,14 +30,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const config = {
-  appId: 'kp123',
-  appKey: 'secret-key',
-  merchantCode: '100001',
-  timeoutSeconds: 30,
-  apiUrl: 'https://kbz.test',
-  timeToLiveMinutes: 15,
-};
+const config = gatewayConfig.kbzPay({ apiUrl: 'https://kbz.test' });
 
 function gateway(fake = new FakeFetch()): KbzPay {
   return new KbzPay(config, { fetch: fake.fetch });
@@ -64,20 +57,22 @@ function requestOf(fake: FakeFetch): Record<string, unknown> {
 }
 
 describe('KbzPayConfig time to live', () => {
-  const credentials = { appId: 'kp123', appKey: 'secret-key', merchantCode: '100001' };
-
   it('takes a whole number of minutes, as a number or text', () => {
-    expect(new KbzPayConfig({ ...credentials, timeToLiveMinutes: 30 }).timeToLiveMinutes).toBe(30);
-    expect(new KbzPayConfig({ ...credentials, timeToLiveMinutes: ' 10 ' }).timeToLiveMinutes).toBe(
-      10,
-    );
-    expect(
-      new KbzPayConfig({ ...credentials, timeToLiveMinutes: null }).timeToLiveMinutes,
-    ).toBeUndefined();
+    expect(new KbzPayConfig({ ...config, timeToLiveMinutes: 30 }).timeToLiveMinutes).toBe(30);
+    expect(new KbzPayConfig({ ...config, timeToLiveMinutes: ' 10 ' }).timeToLiveMinutes).toBe(10);
+  });
+
+  it.each([undefined, null, '', '   '])('requires it, rejecting %j', (timeToLiveMinutes) => {
+    const options = { ...config, timeToLiveMinutes } as unknown as KbzPayConfigOptions;
+    expect(caught(() => new KbzPayConfig(options))).toMatchObject({
+      gateway: 'kbz_pay',
+      key: 'time_to_live_in_minutes',
+      message: 'The kbz_pay configuration is missing [time_to_live_in_minutes].',
+    });
   });
 
   it.each([0, 121, 1.5, Number.NaN])('rejects %j', (timeToLiveMinutes) => {
-    expect(caught(() => new KbzPayConfig({ ...credentials, timeToLiveMinutes }))).toMatchObject({
+    expect(caught(() => new KbzPayConfig({ ...config, timeToLiveMinutes }))).toMatchObject({
       key: 'time_to_live_in_minutes',
       message:
         'The kbz_pay configuration [time_to_live_in_minutes] must be a whole number from 1 to 120.',
@@ -519,6 +514,15 @@ describe('KbzPay', () => {
 });
 
 describe('KbzPayConfig', () => {
+  const kbzEnv: Record<string, string> = {
+    KBZ_PAY_APP_ID: 'kp1',
+    KBZ_PAY_APP_KEY: 'key',
+    KBZ_PAY_MERCHANT_CODE: '200',
+    KBZ_PAY_BASE_URL: 'https://api.kbzpay.com/payment/gateway',
+    KBZ_PAY_PWA_BASE_REDIRECT_URL: 'https://wap.kbzpay.com/pgw/pwa/#/',
+    KBZ_PAY_TIME_TO_LIVE_IN_MINUTES: '15',
+  };
+
   it('names a missing key', () => {
     expect(caught(() => new KbzPayConfig({ ...config, appKey: '' }))).toMatchObject({
       gateway: 'kbz_pay',
@@ -535,9 +539,7 @@ describe('KbzPayConfig', () => {
       expect(new KbzPayConfig({ ...config, timeoutSeconds }).timeoutSeconds).toBe(30);
     }
     const { MYANMAR_PAYMENTS_HTTP_TIMEOUT: _variable, ...envWithoutTimeout } = {
-      KBZ_PAY_APP_ID: 'kp1',
-      KBZ_PAY_APP_KEY: 'key',
-      KBZ_PAY_MERCHANT_CODE: '200',
+      ...kbzEnv,
       MYANMAR_PAYMENTS_HTTP_TIMEOUT: '20',
     };
     expect(KbzPayConfig.fromEnv(envWithoutTimeout).timeoutSeconds).toBe(30);
@@ -566,27 +568,48 @@ describe('KbzPayConfig', () => {
     }
   });
 
-  it('defaults to the production endpoints', () => {
+  it('requires the URLs and names the production ones', () => {
     const production = new KbzPayConfig({
-      appId: 'a',
-      appKey: 'b',
-      merchantCode: 'c',
-      timeoutSeconds: 30,
-    });
-    expect(production).toMatchObject({
+      ...config,
       apiUrl: KbzPayConfig.PRODUCTION_API_URL,
       pwaUrl: KbzPayConfig.PRODUCTION_PWA_URL,
+    });
+    expect(production).toMatchObject({
+      apiUrl: 'https://api.kbzpay.com/payment/gateway',
+      pwaUrl: 'https://wap.kbzpay.com/pgw/pwa/#/',
     });
     expect(new KbzPayConfig({ ...config, apiUrl: 'https://proxy.test/kbz/' }).apiUrl).toBe(
       'https://proxy.test/kbz',
     );
+    for (const [option, key] of [
+      ['apiUrl', 'api_url'],
+      ['pwaUrl', 'pwa_url'],
+    ] as const) {
+      for (const value of [undefined, '', '   ']) {
+        const options = { ...config, [option]: value } as unknown as KbzPayConfigOptions;
+        expect(caught(() => new KbzPayConfig(options))).toMatchObject({
+          gateway: 'kbz_pay',
+          key,
+          message: `The kbz_pay configuration is missing [${key}].`,
+        });
+      }
+    }
+  });
+
+  it('requires every variable except the HTTP timeout', () => {
+    for (const [variable, key] of [
+      ['KBZ_PAY_BASE_URL', 'api_url'],
+      ['KBZ_PAY_PWA_BASE_REDIRECT_URL', 'pwa_url'],
+      ['KBZ_PAY_TIME_TO_LIVE_IN_MINUTES', 'time_to_live_in_minutes'],
+    ]) {
+      const { [variable as string]: _removed, ...env } = kbzEnv;
+      expect(caught(() => KbzPayConfig.fromEnv(env))).toMatchObject({ gateway: 'kbz_pay', key });
+    }
   });
 
   it('reads the environment', () => {
     const env = {
-      KBZ_PAY_APP_ID: 'kp1',
-      KBZ_PAY_APP_KEY: 'key',
-      KBZ_PAY_MERCHANT_CODE: '200',
+      ...kbzEnv,
       MYANMAR_PAYMENTS_HTTP_TIMEOUT: '20',
       KBZ_PAY_BASE_URL: 'https://api.test/',
       KBZ_PAY_PWA_BASE_REDIRECT_URL: 'https://pwa.test/#',
@@ -598,6 +621,7 @@ describe('KbzPayConfig', () => {
       timeoutSeconds: 20,
       apiUrl: 'https://api.test',
       pwaUrl: 'https://pwa.test/#/',
+      timeToLiveMinutes: 15,
     });
     expect(KbzPay.fromEnv(env).config.appId).toBe('kp1');
     expect(caught(() => KbzPay.fromEnv({}))).toMatchObject({ key: 'app_id' });
@@ -607,6 +631,9 @@ describe('KbzPayConfig', () => {
     vi.stubEnv('KBZ_PAY_APP_ID', 'from-process');
     vi.stubEnv('KBZ_PAY_APP_KEY', 'k');
     vi.stubEnv('KBZ_PAY_MERCHANT_CODE', 'm');
+    vi.stubEnv('KBZ_PAY_BASE_URL', 'https://api.test');
+    vi.stubEnv('KBZ_PAY_PWA_BASE_REDIRECT_URL', 'https://pwa.test/#/');
+    vi.stubEnv('KBZ_PAY_TIME_TO_LIVE_IN_MINUTES', '15');
     vi.stubEnv('MYANMAR_PAYMENTS_HTTP_TIMEOUT', '30');
     try {
       expect(KbzPayConfig.fromEnv().appId).toBe('from-process');

@@ -1,14 +1,7 @@
 import { type AmountInput } from '../core/amount.js';
 import { CallbackRequest, losslessInput, PaymentCallback } from '../core/callback.js';
 import { hmacSha256Base64, randomHex, safeEqual } from '../core/crypto.js';
-import {
-  defaultEnv,
-  envFirst,
-  optionalSetting,
-  requireSetting,
-  trimUrl,
-  type EnvSource,
-} from '../core/env.js';
+import { defaultEnv, envFirst, requireSetting, trimUrl, type EnvSource } from '../core/env.js';
 import { SignatureVerificationError } from '../core/errors.js';
 import { setKey, toPlainObject, type LosslessObject } from '../core/json.js';
 import { FormPayment, type FormField } from '../core/results.js';
@@ -24,13 +17,16 @@ export interface CyberSourceConfigOptions {
   accessKey: string;
   /** The profile's secret key, which signs the fields. */
   secretKey: string;
-  /** Overrides the Secure Acceptance base URL, e.g. to point at the test environment. */
-  baseUrl?: string | undefined;
+  /**
+   * The Secure Acceptance base URL, e.g. `CyberSourceConfig.PRODUCTION_URL` or
+   * `https://testsecureacceptance.cybersource.com`.
+   */
+  baseUrl: string;
 }
 
 /**
- * A CyberSource Secure Acceptance profile. A missing credential throws a `ConfigurationError`. The
- * URL defaults to production.
+ * A CyberSource Secure Acceptance profile. Every setting is required; a missing one throws a
+ * `ConfigurationError`. `PRODUCTION_URL` names production's base URL.
  */
 export class CyberSourceConfig {
   static readonly PRODUCTION_URL = 'https://secureacceptance.cybersource.com';
@@ -45,12 +41,12 @@ export class CyberSourceConfig {
     this.profileId = requireSetting('cyber_source', 'profile_id', options.profileId);
     this.accessKey = requireSetting('cyber_source', 'access_key', options.accessKey);
     this.secretKey = requireSetting('cyber_source', 'secret_key', options.secretKey);
-    this.baseUrl = trimUrl(optionalSetting(options.baseUrl) ?? CyberSourceConfig.PRODUCTION_URL);
+    this.baseUrl = trimUrl(requireSetting('cyber_source', 'base_url', options.baseUrl));
   }
 
   /**
-   * Reads `CYBER_SOURCE_PROFILE_ID`, `CYBER_SOURCE_ACCESS_KEY`, `CYBER_SOURCE_SECRET_KEY`,
-   * and `CYBER_SOURCE_BASE_URL`.
+   * Reads `CYBER_SOURCE_PROFILE_ID`, `CYBER_SOURCE_ACCESS_KEY`, `CYBER_SOURCE_SECRET_KEY` and
+   * `CYBER_SOURCE_BASE_URL`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): CyberSourceConfig {
     return new CyberSourceConfig({

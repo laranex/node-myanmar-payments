@@ -11,7 +11,6 @@ import {
   defaultEnv,
   envFirst,
   HTTP_TIMEOUT_VARIABLE,
-  optionalSetting,
   requireSetting,
   resolveTimeout,
   trimUrl,
@@ -41,19 +40,20 @@ export interface AyaPayConfigOptions {
   appKey: string;
   /** The secret that signs requests and verifies callbacks. */
   appSecret: string;
+  /** The gateway base URL, e.g. `AyaPayConfig.PRODUCTION_URL` or `https://uat-pgw.ayainnovation.com`. */
+  baseUrl: string;
   /**
    * Seconds before the default HTTP client gives up on a request, a whole number greater than 0
    * (or its text). Defaults to 30 (`DEFAULT_TIMEOUT_SECONDS`) when unset or blank. A
    * client you pass keeps its own timeout.
    */
   timeoutSeconds?: number | string | null | undefined;
-  /** Overrides the gateway base URL, e.g. to point at UAT. */
-  baseUrl?: string | undefined;
 }
 
 /**
- * AYA Payment Gateway (APG) credentials and endpoints. A missing setting throws a
- * `ConfigurationError`. The URL defaults to production.
+ * AYA Payment Gateway (APG) credentials and endpoints. Every setting is required except the HTTP
+ * timeout; a missing one throws a `ConfigurationError`. `PRODUCTION_URL` names production's base
+ * URL.
  */
 export class AyaPayConfig {
   static readonly PRODUCTION_URL = 'https://pgw.ayainnovation.com';
@@ -68,20 +68,20 @@ export class AyaPayConfig {
   constructor(options: AyaPayConfigOptions) {
     this.appKey = requireSetting('aya_pay', 'app_key', options.appKey);
     this.appSecret = requireSetting('aya_pay', 'app_secret', options.appSecret);
+    this.baseUrl = trimUrl(requireSetting('aya_pay', 'base_url', options.baseUrl));
     this.timeoutSeconds = resolveTimeout('aya_pay', options.timeoutSeconds);
-    this.baseUrl = trimUrl(optionalSetting(options.baseUrl) ?? AyaPayConfig.PRODUCTION_URL);
   }
 
   /**
-   * Reads `AYA_PAY_APP_KEY`, `AYA_PAY_APP_SECRET`, `MYANMAR_PAYMENTS_HTTP_TIMEOUT` and
-   * `AYA_PAY_BASE_URL`, falling back to the `AYA_PGW_*` names.
+   * Reads `AYA_PAY_APP_KEY`, `AYA_PAY_APP_SECRET`, `AYA_PAY_BASE_URL` and
+   * `MYANMAR_PAYMENTS_HTTP_TIMEOUT`, falling back to the `AYA_PGW_*` names.
    */
   static fromEnv(env: EnvSource = defaultEnv()): AyaPayConfig {
     return new AyaPayConfig({
       appKey: envFirst(env, 'AYA_PAY_APP_KEY', 'AYA_PGW_APP_KEY'),
       appSecret: envFirst(env, 'AYA_PAY_APP_SECRET', 'AYA_PGW_APP_SECRET'),
-      timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
       baseUrl: envFirst(env, 'AYA_PAY_BASE_URL', 'AYA_PGW_BASE_URL'),
+      timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
     });
   }
 }

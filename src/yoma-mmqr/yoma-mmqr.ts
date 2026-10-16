@@ -11,7 +11,6 @@ import {
   defaultEnv,
   envFirst,
   HTTP_TIMEOUT_VARIABLE,
-  optionalSetting,
   requireSetting,
   resolveTimeout,
   trimUrl,
@@ -41,23 +40,23 @@ export interface YomaMmqrConfigOptions {
   clientSecret: string;
   /** The hash key Yoma issued for verifying callbacks. */
   webhookHashKey: string;
-  /** The secret you shared with Yoma; when set, callbacks must carry it in `X-Webhook-Secret`. */
-  webhookSecret?: string | undefined;
   /** The `{version}` segment of the API paths, e.g. `v1rc`. */
   apiVersion: string;
+  /** The secret you shared with Yoma; every callback must carry it in `X-Webhook-Secret`. */
+  webhookSecret: string;
+  /** The API base URL, e.g. `YomaMmqrConfig.PRODUCTION_URL` or `https://devapi.yomabank.net`. */
+  baseUrl: string;
   /**
    * Seconds before the default HTTP client gives up on a request, a whole number greater than 0
    * (or its text). Defaults to 30 (`DEFAULT_TIMEOUT_SECONDS`) when unset or blank. A
    * client you pass keeps its own timeout.
    */
   timeoutSeconds?: number | string | null | undefined;
-  /** Overrides the API base URL, e.g. to point at UAT. */
-  baseUrl?: string | undefined;
 }
 
 /**
- * Yoma MMQR credentials and endpoints. A missing setting throws a `ConfigurationError`. The URL
- * defaults to production.
+ * Yoma MMQR credentials and endpoints. Every setting is required except the HTTP timeout; a
+ * missing one throws a `ConfigurationError`. `PRODUCTION_URL` names production's API base URL.
  */
 export class YomaMmqrConfig {
   static readonly PRODUCTION_URL = 'https://paymenthubapi.yomabank.com';
@@ -66,9 +65,10 @@ export class YomaMmqrConfig {
   readonly clientId: string;
   readonly clientSecret: string;
   readonly webhookHashKey: string;
-  readonly webhookSecret: string | undefined;
   /** The `{version}` segment of the API paths. */
   readonly apiVersion: string;
+  /** The secret every callback must carry in `X-Webhook-Secret`. */
+  readonly webhookSecret: string;
   /** Seconds before the default HTTP client gives up on a request. */
   readonly timeoutSeconds: number;
   /** The base URL in use. */
@@ -80,15 +80,15 @@ export class YomaMmqrConfig {
     this.clientSecret = requireSetting('yoma_mmqr', 'client_secret', options.clientSecret);
     this.webhookHashKey = requireSetting('yoma_mmqr', 'webhook_hashkey', options.webhookHashKey);
     this.apiVersion = requireSetting('yoma_mmqr', 'api_version', options.apiVersion);
+    this.webhookSecret = requireSetting('yoma_mmqr', 'webhook_secret', options.webhookSecret);
+    this.baseUrl = trimUrl(requireSetting('yoma_mmqr', 'base_url', options.baseUrl));
     this.timeoutSeconds = resolveTimeout('yoma_mmqr', options.timeoutSeconds);
-    this.webhookSecret = optionalSetting(options.webhookSecret);
-    this.baseUrl = trimUrl(optionalSetting(options.baseUrl) ?? YomaMmqrConfig.PRODUCTION_URL);
   }
 
   /**
    * Reads `YOMA_MMQR_MERCHANT_ID`, `YOMA_MMQR_CLIENT_ID`, `YOMA_MMQR_CLIENT_SECRET`,
-   * `YOMA_MMQR_WEBHOOK_HASHKEY`, `YOMA_MMQR_API_VERSION`, `MYANMAR_PAYMENTS_HTTP_TIMEOUT`,
-   * `YOMA_MMQR_WEBHOOK_SECRET` and `YOMA_MMQR_BASE_URL`.
+   * `YOMA_MMQR_WEBHOOK_HASHKEY`, `YOMA_MMQR_API_VERSION`, `YOMA_MMQR_WEBHOOK_SECRET`,
+   * `YOMA_MMQR_BASE_URL` and `MYANMAR_PAYMENTS_HTTP_TIMEOUT`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): YomaMmqrConfig {
     return new YomaMmqrConfig({
@@ -97,9 +97,9 @@ export class YomaMmqrConfig {
       clientSecret: envFirst(env, 'YOMA_MMQR_CLIENT_SECRET'),
       webhookHashKey: envFirst(env, 'YOMA_MMQR_WEBHOOK_HASHKEY'),
       apiVersion: envFirst(env, 'YOMA_MMQR_API_VERSION'),
-      timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
       webhookSecret: envFirst(env, 'YOMA_MMQR_WEBHOOK_SECRET'),
       baseUrl: envFirst(env, 'YOMA_MMQR_BASE_URL'),
+      timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
     });
   }
 }
@@ -254,10 +254,7 @@ export class YomaMmqr {
   handleCallback(request: CallbackRequest): PaymentCallback {
     const payload = losslessBody(request);
 
-    if (
-      this.config.webhookSecret !== undefined &&
-      !safeEqual(this.config.webhookSecret, request.header('X-Webhook-Secret') ?? '')
-    ) {
+    if (!safeEqual(this.config.webhookSecret, request.header('X-Webhook-Secret') ?? '')) {
       throw new SignatureVerificationError(
         'Yoma MMQR callback has a missing or wrong X-Webhook-Secret header.',
         toPlainObject(payload),

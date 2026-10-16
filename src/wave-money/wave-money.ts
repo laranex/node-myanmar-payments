@@ -5,14 +5,13 @@ import {
   defaultEnv,
   envFirst,
   HTTP_TIMEOUT_VARIABLE,
-  optionalSetting,
-  optionalSeconds,
+  requireSeconds,
   requireSetting,
   resolveTimeout,
   trimUrl,
   type EnvSource,
 } from '../core/env.js';
-import { ApiError, InvalidPaymentDataError, SignatureVerificationError } from '../core/errors.js';
+import { ApiError, SignatureVerificationError } from '../core/errors.js';
 import {
   httpClientFrom,
   Transport,
@@ -34,27 +33,33 @@ export interface WaveMoneyConfigOptions {
   /** Your business name, shown on Wave's payment page. */
   merchantName: string;
   /**
-   * How long the customer has to pay, in seconds: a whole number greater than 0 (or its text). A
-   * payment's own `timeToLiveSeconds` overrides it. Unset or blank is allowed, but then every
-   * payment must set its own.
+   * The API base URL, e.g. `WaveMoneyConfig.PRODUCTION_URL` or
+   * `https://preprodpayments.wavemoney.io:8107`. Payments are requested at its `/payment`.
    */
-  timeToLiveSeconds?: number | string | null | undefined;
+  baseUrl: string;
+  /**
+   * The host the customer is sent to, e.g. `WaveMoneyConfig.PRODUCTION_URL` or
+   * `https://preprodpayments.wavemoney.io`. The customer approves the payment at its
+   * `/authenticate`.
+   */
+  baseRedirectUrl: string;
+  /**
+   * How long the customer has to pay, in seconds: a whole number greater than 0 (or its text). A
+   * payment's own `timeToLiveSeconds` overrides it.
+   */
+  timeToLiveSeconds: number | string;
   /**
    * Seconds before the default HTTP client gives up on a request, a whole number greater than 0
    * (or its text). Defaults to 30 (`DEFAULT_TIMEOUT_SECONDS`) when unset or blank. A
    * client you pass keeps its own timeout.
    */
   timeoutSeconds?: number | string | null | undefined;
-  /**
-   * Overrides the API base URL, e.g. to point at UAT. Payments are requested at its `/payment` and
-   * the customer is sent to its `/authenticate`.
-   */
-  baseUrl?: string | undefined;
 }
 
 /**
- * Wave Money credentials and endpoints. A missing setting throws a `ConfigurationError`. The URLs
- * default to production.
+ * Wave Money credentials and endpoints. Every setting is required except the HTTP timeout; a
+ * missing one throws a `ConfigurationError`. `PRODUCTION_URL` names production's API and payment
+ * page host.
  */
 export class WaveMoneyConfig {
   static readonly PRODUCTION_URL = 'https://payments.wavemoney.io';
@@ -62,38 +67,45 @@ export class WaveMoneyConfig {
   readonly merchantId: string;
   readonly secretKey: string;
   readonly merchantName: string;
-  /** Seconds the customer has to pay unless the payment sets its own; `undefined` when unset. */
-  readonly timeToLiveSeconds: number | undefined;
+  /** The API base URL in use; payments are requested at its `/payment`. */
+  readonly baseUrl: string;
+  /** The host the customer is sent to, at its `/authenticate`. */
+  readonly baseRedirectUrl: string;
+  /** Seconds the customer has to pay unless the payment sets its own. */
+  readonly timeToLiveSeconds: number;
   /** Seconds before the default HTTP client gives up on a request. */
   readonly timeoutSeconds: number;
-  /** The API base URL in use. */
-  readonly baseUrl: string;
 
   constructor(options: WaveMoneyConfigOptions) {
     this.merchantId = requireSetting('wave_money', 'merchant_id', options.merchantId);
     this.secretKey = requireSetting('wave_money', 'secret_key', options.secretKey);
     this.merchantName = requireSetting('wave_money', 'merchant_name', options.merchantName);
-    this.timeToLiveSeconds = optionalSeconds(
+    this.baseUrl = trimUrl(requireSetting('wave_money', 'base_url', options.baseUrl));
+    this.baseRedirectUrl = trimUrl(
+      requireSetting('wave_money', 'base_redirect_url', options.baseRedirectUrl),
+    );
+    this.timeToLiveSeconds = requireSeconds(
       'wave_money',
       'time_to_live_in_seconds',
       options.timeToLiveSeconds,
     );
     this.timeoutSeconds = resolveTimeout('wave_money', options.timeoutSeconds);
-    this.baseUrl = trimUrl(optionalSetting(options.baseUrl) ?? WaveMoneyConfig.PRODUCTION_URL);
   }
 
   /**
    * Reads `WAVE_MONEY_MERCHANT_ID`, `WAVE_MONEY_SECRET_KEY`, `WAVE_MONEY_MERCHANT_NAME`,
-   * `WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS`, `MYANMAR_PAYMENTS_HTTP_TIMEOUT` and `WAVE_MONEY_BASE_URL`.
+   * `WAVE_MONEY_BASE_URL`, `WAVE_MONEY_BASE_REDIRECT_URL`, `WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS` and
+   * `MYANMAR_PAYMENTS_HTTP_TIMEOUT`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): WaveMoneyConfig {
     return new WaveMoneyConfig({
       merchantId: envFirst(env, 'WAVE_MONEY_MERCHANT_ID'),
       secretKey: envFirst(env, 'WAVE_MONEY_SECRET_KEY'),
       merchantName: envFirst(env, 'WAVE_MONEY_MERCHANT_NAME'),
+      baseUrl: envFirst(env, 'WAVE_MONEY_BASE_URL'),
+      baseRedirectUrl: envFirst(env, 'WAVE_MONEY_BASE_REDIRECT_URL'),
       timeToLiveSeconds: envFirst(env, 'WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS'),
       timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
-      baseUrl: envFirst(env, 'WAVE_MONEY_BASE_URL'),
     });
   }
 }
@@ -137,7 +149,7 @@ export interface WaveMoneyPaymentData {
   merchantName?: string | null | undefined;
   /**
    * How long the customer has to pay this payment, in seconds: a whole number greater than 0.
-   * Defaults to the configured `timeToLiveSeconds` when unset; one of the two is required.
+   * Overrides the configured `timeToLiveSeconds` for this payment.
    */
   timeToLiveSeconds?: number | null | undefined;
 }
@@ -262,8 +274,7 @@ export class WaveMoney {
   /**
    * Creates a payment request and returns Wave's page to redirect the customer to. Once `data`
    * passes validation it fills `data.merchantReferenceId` with a random id when empty, so store it
-   * afterwards. Invalid data is left untouched. Throws `InvalidPaymentDataError` before any request
-   * when neither the payment nor the config sets a time to live.
+   * afterwards. Invalid data is left untouched.
    */
   async initiate(
     data: WaveMoneyPaymentData,
@@ -271,12 +282,6 @@ export class WaveMoney {
   ): Promise<RedirectPayment> {
     WaveMoney.validate(data);
     const timeToLiveSeconds = data.timeToLiveSeconds ?? this.config.timeToLiveSeconds;
-    if (timeToLiveSeconds === undefined) {
-      throw new InvalidPaymentDataError({
-        timeToLiveSeconds:
-          'The timeToLiveSeconds field is required when the wave_money configuration has no [time_to_live_in_seconds].',
-      });
-    }
     if (!data.merchantReferenceId) {
       data.merchantReferenceId = randomHex();
     }
@@ -334,7 +339,7 @@ export class WaveMoney {
 
     return new RedirectPayment({
       orderId: data.orderId,
-      url: `${this.config.baseUrl}/authenticate?transaction_id=${queryEscape(transactionId)}`,
+      url: `${this.config.baseRedirectUrl}/authenticate?transaction_id=${queryEscape(transactionId)}`,
       gatewayReference: transactionId,
       raw: toPlainObject(body),
     });

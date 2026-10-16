@@ -15,7 +15,7 @@ import {
   type YomaMmqrConfigOptions,
 } from '../src/index.js';
 import * as subpath from '../src/yoma-mmqr/index.js';
-import { caught, FakeFetch, hmacHex, rejected, type Reply } from './helpers.js';
+import { caught, FakeFetch, gatewayConfig, hmacHex, rejected, type Reply } from './helpers.js';
 
 const NOW = 1791393600;
 
@@ -28,15 +28,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const options: YomaMmqrConfigOptions = {
-  merchantId: 'M001',
-  clientId: 'client',
-  clientSecret: 'secret',
-  webhookHashKey: 'hash-key',
-  apiVersion: 'v1rc',
-  timeoutSeconds: 30,
-  baseUrl: 'https://yoma.test',
-};
+const options: YomaMmqrConfigOptions = gatewayConfig.yomaMmqr({ baseUrl: 'https://yoma.test' });
 
 function gateway(
   fake = new FakeFetch(),
@@ -291,7 +283,7 @@ describe('YomaMmqr', () => {
 
   function callback(
     payload: Record<string, unknown>,
-    headers?: Record<string, string>,
+    headers: Record<string, string> = { 'X-Webhook-Secret': 'webhook-secret' },
   ): CallbackRequest {
     return CallbackRequest.fromJson(payload, headers);
   }
@@ -343,7 +335,7 @@ describe('YomaMmqr', () => {
     ).toThrow('Yoma MMQR callback hash verification failed.');
   });
 
-  it('checks the webhook secret header when one is configured', () => {
+  it('always checks the webhook secret header', () => {
     const yoma = gateway(new FakeFetch(), undefined, { webhookSecret: 'shared' });
     const payload = {
       orderNumber: 'ORD-1',
@@ -353,7 +345,12 @@ describe('YomaMmqr', () => {
     expect(
       yoma.handleCallback(callback(payload, { 'X-Webhook-Secret': 'shared' })).isSuccessful(),
     ).toBe(true);
-    for (const headers of [undefined, { 'X-Webhook-Secret': 'wrong' }]) {
+    for (const headers of [
+      {},
+      { 'X-Webhook-Secret': '' },
+      { 'X-Webhook-Secret': 'wrong' },
+      { 'X-Webhook-Secret': 'webhook-secret' },
+    ]) {
       const error = caught(() =>
         yoma.handleCallback(callback(payload, headers)),
       ) as SignatureVerificationError;
@@ -393,14 +390,27 @@ describe('YomaMmqr', () => {
 });
 
 describe('YomaMmqrConfig', () => {
-  it('defaults to production and requires every setting', () => {
-    const { baseUrl: _baseUrl, ...rest } = options;
+  it('requires every setting except the timeout and names the production URL', () => {
+    const rest = { ...options, baseUrl: `${YomaMmqrConfig.PRODUCTION_URL}/` };
     expect(new YomaMmqrConfig(rest)).toMatchObject({
-      baseUrl: YomaMmqrConfig.PRODUCTION_URL,
+      baseUrl: 'https://paymenthubapi.yomabank.com',
       apiVersion: 'v1rc',
       timeoutSeconds: 30,
-      webhookSecret: undefined,
+      webhookSecret: 'webhook-secret',
     });
+    for (const [option, key] of [
+      ['webhookSecret', 'webhook_secret'],
+      ['baseUrl', 'base_url'],
+    ] as const) {
+      for (const value of [undefined, '', '   ']) {
+        const settings = { ...rest, [option]: value } as unknown as YomaMmqrConfigOptions;
+        expect(caught(() => new YomaMmqrConfig(settings))).toMatchObject({
+          gateway: 'yoma_mmqr',
+          key,
+          message: `The yoma_mmqr configuration is missing [${key}].`,
+        });
+      }
+    }
     expect(caught(() => new YomaMmqrConfig({ ...rest, webhookHashKey: '' }))).toMatchObject({
       gateway: 'yoma_mmqr',
       key: 'webhook_hashkey',
@@ -437,6 +447,16 @@ describe('YomaMmqrConfig', () => {
       apiVersion: 'v2',
     });
     expect(YomaMmqr.fromEnv(env).config.clientId).toBe('C');
+    for (const [variable, key] of [
+      ['YOMA_MMQR_WEBHOOK_SECRET', 'webhook_secret'],
+      ['YOMA_MMQR_BASE_URL', 'base_url'],
+    ]) {
+      const { [variable as string]: _removed, ...partial } = env as Record<string, string>;
+      expect(caught(() => YomaMmqrConfig.fromEnv(partial))).toMatchObject({
+        gateway: 'yoma_mmqr',
+        key,
+      });
+    }
     for (const [key, value] of Object.entries(env)) {
       vi.stubEnv(key, value);
     }

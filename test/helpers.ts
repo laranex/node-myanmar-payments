@@ -2,7 +2,14 @@ import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import type { FetchFunction } from '../src/index.js';
+import type {
+  AyaPayConfigOptions,
+  CyberSourceConfigOptions,
+  FetchFunction,
+  KbzPayConfigOptions,
+  WaveMoneyConfigOptions,
+  YomaMmqrConfigOptions,
+} from '../src/index.js';
 
 /** A request captured by {@link FakeFetch}. */
 export interface Recorded {
@@ -98,3 +105,55 @@ export async function rejected(promise: Promise<unknown>): Promise<unknown> {
   }
   throw new Error('expected a rejection');
 }
+
+/**
+ * Complete, valid gateway settings with production URLs; tests override only what they check.
+ * Every setting is required except the HTTP timeout.
+ */
+export const gatewayConfig = {
+  kbzPay: (overrides: Partial<KbzPayConfigOptions> = {}): KbzPayConfigOptions => ({
+    appId: 'kp123',
+    appKey: 'secret-key',
+    merchantCode: '100001',
+    apiUrl: 'https://api.kbzpay.com/payment/gateway',
+    pwaUrl: 'https://wap.kbzpay.com/pgw/pwa/#/',
+    timeToLiveMinutes: 15,
+    timeoutSeconds: 30,
+    ...overrides,
+  }),
+  waveMoney: (overrides: Partial<WaveMoneyConfigOptions> = {}): WaveMoneyConfigOptions => ({
+    merchantId: 'testmerchantID',
+    secretKey: 'test-secret',
+    merchantName: 'Shop',
+    baseUrl: 'https://payments.wavemoney.io',
+    baseRedirectUrl: 'https://payments.wavemoney.io',
+    timeToLiveSeconds: 300,
+    timeoutSeconds: 30,
+    ...overrides,
+  }),
+  ayaPay: (overrides: Partial<AyaPayConfigOptions> = {}): AyaPayConfigOptions => ({
+    appKey: 'app-key',
+    appSecret: 'test-secret',
+    baseUrl: 'https://pgw.ayainnovation.com',
+    timeoutSeconds: 30,
+    ...overrides,
+  }),
+  yomaMmqr: (overrides: Partial<YomaMmqrConfigOptions> = {}): YomaMmqrConfigOptions => ({
+    merchantId: 'M001',
+    clientId: 'client',
+    clientSecret: 'secret',
+    webhookHashKey: 'hash-key',
+    apiVersion: 'v1rc',
+    webhookSecret: 'webhook-secret',
+    baseUrl: 'https://paymenthubapi.yomabank.com',
+    timeoutSeconds: 30,
+    ...overrides,
+  }),
+  cyberSource: (overrides: Partial<CyberSourceConfigOptions> = {}): CyberSourceConfigOptions => ({
+    profileId: 'profile',
+    accessKey: 'access',
+    secretKey: 'secret',
+    baseUrl: 'https://secureacceptance.cybersource.com',
+    ...overrides,
+  }),
+};

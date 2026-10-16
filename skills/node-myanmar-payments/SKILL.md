@@ -23,7 +23,7 @@ Requires Node.js 20+ and has no runtime dependencies (global `fetch`, `node:cryp
 
 ## Configure
 
-`MyanmarPayments.fromEnv(process.env)` reads `KBZ_PAY_*`, `WAVE_MONEY_*`, `AYA_PAY_*` (or `AYA_PGW_*`), `YOMA_MMQR_*` and `CYBER_SOURCE_*` plus `MYANMAR_PAYMENTS_HTTP_TIMEOUT` (the same variables as the PHP, Go and Python SDKs). Every gateway defaults to its production URLs; to test against UAT, set the URL overrides (`KBZ_PAY_BASE_URL`, `KBZ_PAY_PWA_BASE_REDIRECT_URL`, `WAVE_MONEY_BASE_URL`, `AYA_PAY_BASE_URL`, `YOMA_MMQR_BASE_URL`, `CYBER_SOURCE_BASE_URL`) to the gateway's UAT URLs. The HTTP timeout `timeoutSeconds` / `MYANMAR_PAYMENTS_HTTP_TIMEOUT` (seconds, for every gateway except CyberSource) is optional and defaults to 30 (`DEFAULT_TIMEOUT_SECONDS`); an explicit value must be a whole number greater than 0. Time to live: `KBZ_PAY_TIME_TO_LIVE_IN_MINUTES` (KBZ's `timeToLiveMinutes`, 1 to 120) and `WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS` (Wave's `timeToLiveSeconds`, greater than 0) are optional defaults; a payment's `timeToLiveMinutes` / `timeToLiveSeconds` overrides them, and a payment with neither throws `InvalidPaymentDataError` before any request. Every other setting is required, with no defaults: credentials, Wave's `merchantName`, and Yoma's `apiVersion` (e.g. `v1rc`).
+`MyanmarPayments.fromEnv(process.env)` reads `KBZ_PAY_*`, `WAVE_MONEY_*`, `AYA_PAY_*` (or `AYA_PGW_*`), `YOMA_MMQR_*` and `CYBER_SOURCE_*` plus `MYANMAR_PAYMENTS_HTTP_TIMEOUT` (the same variables as the PHP, Go and Python SDKs). Every setting of a gateway you use is required and has no default, except the HTTP timeout `timeoutSeconds` / `MYANMAR_PAYMENTS_HTTP_TIMEOUT` (seconds, for every gateway except CyberSource), which defaults to 30 (`DEFAULT_TIMEOUT_SECONDS`); an explicit value must be a whole number greater than 0. That includes the credentials, the URLs (`KBZ_PAY_BASE_URL`, `KBZ_PAY_PWA_BASE_REDIRECT_URL`, `WAVE_MONEY_BASE_URL`, `WAVE_MONEY_BASE_REDIRECT_URL`, `AYA_PAY_BASE_URL`, `YOMA_MMQR_BASE_URL`, `CYBER_SOURCE_BASE_URL`: production's or the gateway's UAT ones; the config classes' `PRODUCTION_*` constants name production's), the time to live (`KBZ_PAY_TIME_TO_LIVE_IN_MINUTES`, KBZ's `timeToLiveMinutes`, 1 to 120; `WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS`, Wave's `timeToLiveSeconds`, greater than 0; a payment's `timeToLiveMinutes` / `timeToLiveSeconds` overrides them), `YOMA_MMQR_WEBHOOK_SECRET` (Yoma's `webhookSecret`; every Yoma callback must carry it in `X-Webhook-Secret`), `WAVE_MONEY_MERCHANT_NAME` and `YOMA_MMQR_API_VERSION` (e.g. `v1rc`). Wave Money requests payments at `WAVE_MONEY_BASE_URL`'s `/payment` and sends the customer to `WAVE_MONEY_BASE_REDIRECT_URL`'s `/authenticate`.
 
 ```ts
 import { MyanmarPayments } from '@laranex/myanmar-payments';
@@ -32,10 +32,10 @@ const payments = MyanmarPayments.fromEnv(process.env); // create once, share acr
 const kbz = payments.kbzPay(); // also waveMoney(), ayaPay(), yomaMmqr(), cyberSource()
 ```
 
-- Or build one gateway: `new KbzPay(new KbzPayConfig({ appId, appKey, merchantCode }))`, `KbzPay.fromEnv()` or `new KbzPay(KbzPayConfig.fromEnv(process.env))`.
-- Or pass the settings directly: gateways and `new MyanmarPayments({ kbzPay: { appId, appKey, merchantCode } })` take config objects or plain option objects; whole-number settings also take text such as `'30'`.
+- Or build one gateway: `new KbzPay(new KbzPayConfig({ appId, appKey, merchantCode, apiUrl, pwaUrl, timeToLiveMinutes }))`, `KbzPay.fromEnv()` or `new KbzPay(KbzPayConfig.fromEnv(process.env))`.
+- Or pass the settings directly: gateways and `new MyanmarPayments({ kbzPay: { appId, appKey, merchantCode, apiUrl, pwaUrl, timeToLiveMinutes } })` take config objects or plain option objects; whole-number settings also take text such as `'30'`.
 - Options (second argument): `{ httpClient, fetch }`. Without `httpClient`, the gateway uses `fetch` with the config's `timeoutSeconds`; a client you pass keeps its own timeout. Yoma and the facade also take `tokenCache` (any `TokenCache`, default `MemoryTokenCache`; back it with Redis when you run several processes).
-- A missing setting throws `ConfigurationError` (`gateway`, `key`); a time setting that is not a whole number greater than 0 throws it too.
+- A missing or blank setting throws `ConfigurationError` (`gateway`, `key`), e.g. `The wave_money configuration is missing [base_redirect_url].`; a time setting that is not a whole number greater than 0 throws it too.
 
 ## Use
 
