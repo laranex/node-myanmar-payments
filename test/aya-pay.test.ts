@@ -547,29 +547,29 @@ describe('AyaPayConfig', () => {
     ).toBe('The aya_pay configuration [timeout_in_seconds] must be a whole number greater than 0.');
   });
 
-  it('reads AYA_PAY_* and falls back to AYA_PGW_*', () => {
+  it('reads AYA_PAY_* and ignores AYA_PGW_*', () => {
     expect(
       AyaPayConfig.fromEnv({
-        AYA_PGW_APP_KEY: 'k',
-        AYA_PGW_APP_SECRET: 's',
-        AYA_PGW_BASE_URL: 'https://pgw.test/',
+        AYA_PAY_APP_KEY: 'k',
+        AYA_PAY_APP_SECRET: 's',
+        AYA_PAY_BASE_URL: 'https://aya.test/',
         MYANMAR_PAYMENTS_HTTP_TIMEOUT: '15',
       }),
     ).toMatchObject({
       appKey: 'k',
       appSecret: 's',
-      baseUrl: 'https://pgw.test',
+      baseUrl: 'https://aya.test',
       timeoutSeconds: 15,
     });
     expect(
-      AyaPay.fromEnv({
-        AYA_PAY_APP_KEY: 'a',
-        AYA_PGW_APP_KEY: 'b',
-        AYA_PAY_APP_SECRET: 's',
-        AYA_PAY_BASE_URL: 'https://pgw.ayainnovation.com',
-        MYANMAR_PAYMENTS_HTTP_TIMEOUT: '30',
-      }).config.appKey,
-    ).toBe('a');
+      caught(() =>
+        AyaPayConfig.fromEnv({
+          AYA_PGW_APP_KEY: 'k',
+          AYA_PGW_APP_SECRET: 's',
+          AYA_PGW_BASE_URL: 'https://aya.test',
+        }),
+      ),
+    ).toMatchObject({ gateway: 'aya_pay', key: 'app_key' });
     expect(
       caught(() => AyaPayConfig.fromEnv({ AYA_PAY_APP_KEY: 'k', AYA_PAY_APP_SECRET: 's' })),
     ).toMatchObject({ gateway: 'aya_pay', key: 'base_url' });

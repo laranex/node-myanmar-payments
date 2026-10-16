@@ -74,13 +74,13 @@ export class AyaPayConfig {
 
   /**
    * Reads `AYA_PAY_APP_KEY`, `AYA_PAY_APP_SECRET`, `AYA_PAY_BASE_URL` and
-   * `MYANMAR_PAYMENTS_HTTP_TIMEOUT`, falling back to the `AYA_PGW_*` names.
+   * `MYANMAR_PAYMENTS_HTTP_TIMEOUT`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): AyaPayConfig {
     return new AyaPayConfig({
-      appKey: envFirst(env, 'AYA_PAY_APP_KEY', 'AYA_PGW_APP_KEY'),
-      appSecret: envFirst(env, 'AYA_PAY_APP_SECRET', 'AYA_PGW_APP_SECRET'),
-      baseUrl: envFirst(env, 'AYA_PAY_BASE_URL', 'AYA_PGW_BASE_URL'),
+      appKey: envFirst(env, 'AYA_PAY_APP_KEY'),
+      appSecret: envFirst(env, 'AYA_PAY_APP_SECRET'),
+      baseUrl: envFirst(env, 'AYA_PAY_BASE_URL'),
       timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
     });
   }
@@ -220,7 +220,7 @@ export class AyaPay {
     this.transport = new Transport(httpClientFrom(options, this.config.timeoutSeconds));
   }
 
-  /** A gateway configured from the `AYA_PAY_*` (or `AYA_PGW_*`) environment variables. */
+  /** A gateway configured from the `AYA_PAY_*` environment variables. */
   static fromEnv(env: EnvSource = defaultEnv(), options: GatewayOptions = {}): AyaPay {
     return new AyaPay(AyaPayConfig.fromEnv(env), options);
   }
