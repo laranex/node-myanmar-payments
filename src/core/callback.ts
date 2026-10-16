@@ -386,8 +386,8 @@ function bodyLimit(options: CallbackReadOptions): number {
 
 /** Fails early when the declared `Content-Length` is already over the limit. */
 function checkDeclaredLength(contentLength: string | undefined, limit: number): void {
-  if (contentLength !== undefined && /^\d+$/.test(contentLength.trim())) {
-    checkSize(Number(contentLength.trim()), limit);
+  if (contentLength !== undefined && /^\d+$/.test(asciiTrim(contentLength))) {
+    checkSize(Number(asciiTrim(contentLength)), limit);
   }
 }
 

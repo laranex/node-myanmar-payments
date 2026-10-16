@@ -57,7 +57,9 @@ export function isHttpUrl(value: string): boolean {
   const parts = /^(\[[^\]]*\]|[^:]*)(?::(\d{1,5}))?$/.exec(authority.slice(at + 1));
   if (
     parts === null ||
-    !/^[A-Za-z0-9\-._~!$&'()*+,;=:]*$/.test(authority.slice(0, Math.max(at, 0))) ||
+    !/^(?:[A-Za-z0-9\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2})*$/.test(
+      authority.slice(0, Math.max(at, 0)),
+    ) ||
     Number(parts[2] ?? 0) > 65535
   ) {
     return false;
