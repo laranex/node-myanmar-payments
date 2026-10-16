@@ -45,10 +45,11 @@ export interface WaveMoneyConfigOptions {
    * client you pass keeps its own timeout.
    */
   timeoutSeconds?: number | string | null | undefined;
-  /** Overrides the API base URL, e.g. to point at UAT. */
+  /**
+   * Overrides the API base URL, e.g. to point at UAT. Payments are requested at its `/payment` and
+   * the customer is sent to its `/authenticate`.
+   */
   baseUrl?: string | undefined;
-  /** Overrides the host the customer is redirected to. Wave serves it without the API port. */
-  authenticateUrl?: string | undefined;
 }
 
 /**
@@ -57,7 +58,6 @@ export interface WaveMoneyConfigOptions {
  */
 export class WaveMoneyConfig {
   static readonly PRODUCTION_URL = 'https://payments.wavemoney.io';
-  static readonly PRODUCTION_AUTHENTICATE_URL = 'https://payments.wavemoney.io';
 
   readonly merchantId: string;
   readonly secretKey: string;
@@ -68,8 +68,6 @@ export class WaveMoneyConfig {
   readonly timeoutSeconds: number;
   /** The API base URL in use. */
   readonly baseUrl: string;
-  /** The host the customer is redirected to. */
-  readonly authenticateUrl: string;
 
   constructor(options: WaveMoneyConfigOptions) {
     this.merchantId = requireSetting('wave_money', 'merchant_id', options.merchantId);
@@ -82,15 +80,11 @@ export class WaveMoneyConfig {
     );
     this.timeoutSeconds = resolveTimeout('wave_money', options.timeoutSeconds);
     this.baseUrl = trimUrl(optionalSetting(options.baseUrl) ?? WaveMoneyConfig.PRODUCTION_URL);
-    this.authenticateUrl = trimUrl(
-      optionalSetting(options.authenticateUrl) ?? WaveMoneyConfig.PRODUCTION_AUTHENTICATE_URL,
-    );
   }
 
   /**
    * Reads `WAVE_MONEY_MERCHANT_ID`, `WAVE_MONEY_SECRET_KEY`, `WAVE_MONEY_MERCHANT_NAME`,
-   * `WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS`, `MYANMAR_PAYMENTS_HTTP_TIMEOUT`, `WAVE_MONEY_BASE_URL`
-   * and `WAVE_MONEY_AUTHENTICATE_URL`.
+   * `WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS`, `MYANMAR_PAYMENTS_HTTP_TIMEOUT` and `WAVE_MONEY_BASE_URL`.
    */
   static fromEnv(env: EnvSource = defaultEnv()): WaveMoneyConfig {
     return new WaveMoneyConfig({
@@ -100,7 +94,6 @@ export class WaveMoneyConfig {
       timeToLiveSeconds: envFirst(env, 'WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS'),
       timeoutSeconds: envFirst(env, HTTP_TIMEOUT_VARIABLE),
       baseUrl: envFirst(env, 'WAVE_MONEY_BASE_URL'),
-      authenticateUrl: envFirst(env, 'WAVE_MONEY_AUTHENTICATE_URL'),
     });
   }
 }
@@ -341,7 +334,7 @@ export class WaveMoney {
 
     return new RedirectPayment({
       orderId: data.orderId,
-      url: `${this.config.authenticateUrl}/authenticate?transaction_id=${queryEscape(transactionId)}`,
+      url: `${this.config.baseUrl}/authenticate?transaction_id=${queryEscape(transactionId)}`,
       gatewayReference: transactionId,
       raw: toPlainObject(body),
     });

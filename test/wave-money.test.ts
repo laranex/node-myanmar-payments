@@ -38,7 +38,6 @@ function gateway(fake = new FakeFetch()): WaveMoney {
       timeToLiveSeconds: 300,
       timeoutSeconds: 30,
       baseUrl: 'https://wave.test',
-      authenticateUrl: 'https://preprodpayments.wavemoney.io',
     },
     { fetch: fake.fetch },
   );
@@ -90,9 +89,7 @@ describe('WaveMoney', () => {
     expect(form.get('hash')).toBe(
       hmacHex('300testmerchantID1001000https://shop.test/wave/callbackref-001', 'test-secret'),
     );
-    expect(payment.url).toBe(
-      'https://preprodpayments.wavemoney.io/authenticate?transaction_id=enc%2F123%2Babc',
-    );
+    expect(payment.url).toBe('https://wave.test/authenticate?transaction_id=enc%2F123%2Babc');
     expect(payment.gatewayReference).toBe('enc/123+abc');
     expect(payment.raw).toEqual({ message: 'success', transaction_id: 'enc/123+abc' });
   });
@@ -419,7 +416,6 @@ describe('WaveMoneyConfig', () => {
   it('defaults to the production hosts', () => {
     expect(new WaveMoneyConfig(settings)).toMatchObject({
       baseUrl: WaveMoneyConfig.PRODUCTION_URL,
-      authenticateUrl: WaveMoneyConfig.PRODUCTION_AUTHENTICATE_URL,
       timeToLiveSeconds: 300,
       timeoutSeconds: 30,
     });
@@ -464,7 +460,6 @@ describe('WaveMoneyConfig', () => {
       WAVE_MONEY_TIME_TO_LIVE_IN_SECONDS: '600',
       MYANMAR_PAYMENTS_HTTP_TIMEOUT: '20',
       WAVE_MONEY_BASE_URL: 'https://wave.test/',
-      WAVE_MONEY_AUTHENTICATE_URL: 'https://auth.test',
     };
     expect(WaveMoneyConfig.fromEnv(env)).toMatchObject({
       merchantId: 'm1',
@@ -472,7 +467,6 @@ describe('WaveMoneyConfig', () => {
       timeToLiveSeconds: 600,
       timeoutSeconds: 20,
       baseUrl: 'https://wave.test',
-      authenticateUrl: 'https://auth.test',
     });
     const { WAVE_MONEY_MERCHANT_NAME: _name, ...withoutName } = env;
     expect(caught(() => WaveMoney.fromEnv({ ...withoutName, APP_NAME: 'App' }))).toMatchObject({

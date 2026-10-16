@@ -210,9 +210,7 @@ describe('parity vectors', () => {
       const yoma = YomaMmqrConfig.fromEnv(variables);
       const cyber = CyberSourceConfig.fromEnv(variables);
       expect({ api_url: kbz.apiUrl, pwa_url: kbz.pwaUrl }).toEqual(expected.kbz_pay);
-      expect({ base_url: wave.baseUrl, authenticate_url: wave.authenticateUrl }).toEqual(
-        expected.wave_money,
-      );
+      expect({ base_url: wave.baseUrl }).toEqual(expected.wave_money);
       expect({ base_url: aya.baseUrl }).toEqual(expected.aya_pay);
       expect({ base_url: yoma.baseUrl }).toEqual(expected.yoma_mmqr);
       expect({ base_url: cyber.baseUrl }).toEqual(expected.cyber_source);
