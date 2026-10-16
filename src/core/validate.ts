@@ -54,7 +54,7 @@ export function isHttpUrl(value: string): boolean {
     return false;
   }
   const at = authority.lastIndexOf('@');
-  const parts = /^(\[[^\]]*\]|[^:]*)(?::(\d{0,5}))?$/.exec(authority.slice(at + 1));
+  const parts = /^(\[[^\]]*\]|[^:]*)(?::(\d{1,5}))?$/.exec(authority.slice(at + 1));
   if (
     parts === null ||
     !/^[A-Za-z0-9\-._~!$&'()*+,;=:]*$/.test(authority.slice(0, Math.max(at, 0))) ||
