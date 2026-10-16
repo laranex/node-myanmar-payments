@@ -57,9 +57,9 @@ export interface WavePayConfigOptions {
 }
 
 /**
- * Wave Pay (Pay with Wave) credentials and endpoints. Every setting is required except the HTTP timeout; a
- * missing one throws a `ConfigurationError`. `PRODUCTION_URL` names production's API and payment
- * page host.
+ * Wave Pay (Pay with Wave) credentials and endpoints. Every setting is required except the HTTP
+ * timeout; a missing one throws a `ConfigurationError`. `PRODUCTION_URL` names production's API
+ * and payment page host.
  */
 export class WavePayConfig {
   static readonly PRODUCTION_URL = 'https://payments.wavemoney.io';
@@ -143,9 +143,8 @@ export interface WavePayPaymentData {
   amount?: AmountInput | undefined;
   /**
    * The unique id of this attempt, at most 100 characters (letters, digits, `_` and `-`); Wave
-   * rejects a reused one.
-   * `initiate()` fills it with a random id when empty, so store it afterwards: Wave's callback may omit `orderId` but always carries
-   * this.
+   * rejects a reused one. `initiate()` fills it with a random id when empty, so store it
+   * afterwards: the callback's `merchantReferenceId` names the attempt that was paid.
    */
   merchantReferenceId?: string | undefined;
   /**
@@ -310,9 +309,9 @@ export class WavePay {
 
   /**
    * Creates a payment request (a JSON post to `{baseUrl}/payment`, currency MMK) and returns Wave's
-   * page to redirect the customer to (`{baseRedirectUrl}/authenticate?transaction_id=...`). Once `data`
-   * passes validation it fills `data.merchantReferenceId` with a random id when empty, so store it
-   * afterwards. Invalid data is left untouched.
+   * page to redirect the customer to (`{baseRedirectUrl}/authenticate?transaction_id=...`). Once
+   * `data` passes validation it fills `data.merchantReferenceId` with a random id when empty, so
+   * store it afterwards. Invalid data is left untouched.
    */
   async initiate(data: WavePayPaymentData, options: RequestOptions = {}): Promise<RedirectPayment> {
     WavePay.validate(data);
@@ -332,7 +331,7 @@ export class WavePay {
       .join(',')}]`;
 
     // The spec sends amount and time_to_live_in_seconds as JSON integers and items as a JSON
-    // string; the amount text is written as a JSON number without passing through a float.
+    // string.
     const fields: [string, string][] = [
       ['merchant_id', JSON.stringify(this.config.merchantId)],
       ['order_id', JSON.stringify(data.orderId)],
@@ -399,8 +398,9 @@ export class WavePay {
   /**
    * Verifies Wave's callback. Only `PAYMENT_CONFIRMED` means the customer paid. `orderId` falls
    * back to `merchantReferenceId` when it is missing, null or empty, as a safeguard: earlier Wave
-   * documents marked `orderId` optional. A hashed field holding an object or array fails verification, and so does a callback
-   * whose `amount` is not a non-negative decimal, which has neither id, or whose `orderId` or
+   * documents marked `orderId` optional. A hashed field holding an object or array fails
+   * verification, and so does a callback whose `amount` is not a non-negative decimal, which has
+   * neither id, or whose `orderId` or
    * `merchantReferenceId` holds anything but letters, digits, `_` and `-`: Wave hashes the values
    * with no separator, so only well-formed values pin each one down.
    */
