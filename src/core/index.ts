@@ -39,9 +39,12 @@ export {
 export {
   AppPayment,
   FormPayment,
+  MiniAppPayment,
   QrPayment,
   RedirectPayment,
   type FormField,
+  type MiniAppPaymentItem,
+  type MiniAppPaymentPayload,
   type PaymentResult,
 } from './results.js';
 export { PaymentFlow, PaymentStatus, resolveStatus } from './status.js';

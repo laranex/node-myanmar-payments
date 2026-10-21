@@ -506,7 +506,13 @@ describe('PaymentStatus', () => {
       'canceled',
       'expired',
     ]);
-    expect(PaymentFlow).toEqual({ Redirect: 'redirect', Form: 'form', Qr: 'qr', App: 'app' });
+    expect(PaymentFlow).toEqual({
+      Redirect: 'redirect',
+      Form: 'form',
+      Qr: 'qr',
+      App: 'app',
+      MiniApp: 'mini_app',
+    });
   });
 
   it('resolves gateway statuses, trimming whitespace', () => {

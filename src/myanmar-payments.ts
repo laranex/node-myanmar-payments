@@ -11,12 +11,18 @@ import {
 } from './cyber-source/cyber-source.js';
 import { KbzPay, KbzPayConfig, type KbzPayConfigOptions } from './kbz-pay/kbz-pay.js';
 import { WavePay, WavePayConfig, type WavePayConfigOptions } from './wave-pay/wave-pay.js';
+import {
+  WavePayMiniApp,
+  WavePayMiniAppConfig,
+  type WavePayMiniAppConfigOptions,
+} from './wave-pay-mini-app/wave-pay-mini-app.js';
 import { YomaMmqr, YomaMmqrConfig, type YomaMmqrConfigOptions } from './yoma-mmqr/yoma-mmqr.js';
 
 /** The configuration of every gateway; configure only the ones you use. */
 export interface MyanmarPaymentsConfig {
   kbzPay?: KbzPayConfig | KbzPayConfigOptions | undefined;
   wavePay?: WavePayConfig | WavePayConfigOptions | undefined;
+  wavePayMiniApp?: WavePayMiniAppConfig | WavePayMiniAppConfigOptions | undefined;
   ayaPay?: AyaPayConfig | AyaPayConfigOptions | undefined;
   yomaMmqr?: YomaMmqrConfig | YomaMmqrConfigOptions | undefined;
   cyberSource?: CyberSourceConfig | CyberSourceConfigOptions | undefined;
@@ -24,7 +30,10 @@ export interface MyanmarPaymentsConfig {
 
 /** Options shared by every gateway the facade builds. */
 export interface MyanmarPaymentsOptions extends GatewayOptions {
-  /** Keeps Yoma MMQR's access token; defaults to a {@link MemoryTokenCache}. */
+  /**
+   * Keeps the Yoma MMQR and Wave Pay Mini App access tokens; defaults to a
+   * {@link MemoryTokenCache}.
+   */
   tokenCache?: TokenCache | undefined;
 }
 
@@ -37,6 +46,7 @@ type Source<T, O> = T | O | (() => T) | undefined;
 export class MyanmarPayments {
   private kbzPayGateway: KbzPay | undefined;
   private wavePayGateway: WavePay | undefined;
+  private wavePayMiniAppGateway: WavePayMiniApp | undefined;
   private ayaPayGateway: AyaPay | undefined;
   private yomaMmqrGateway: YomaMmqr | undefined;
   private cyberSourceGateway: CyberSource | undefined;
@@ -44,6 +54,7 @@ export class MyanmarPayments {
   private readonly sources: {
     kbzPay: Source<KbzPayConfig, KbzPayConfigOptions>;
     wavePay: Source<WavePayConfig, WavePayConfigOptions>;
+    wavePayMiniApp: Source<WavePayMiniAppConfig, WavePayMiniAppConfigOptions>;
     ayaPay: Source<AyaPayConfig, AyaPayConfigOptions>;
     yomaMmqr: Source<YomaMmqrConfig, YomaMmqrConfigOptions>;
     cyberSource: Source<CyberSourceConfig, CyberSourceConfigOptions>;
@@ -56,7 +67,8 @@ export class MyanmarPayments {
 
   /**
    * Reads every gateway's configuration from environment variables (`KBZ_PAY_*`, `WAVE_PAY_*`,
-   * `AYA_PAY_*`, `YOMA_MMQR_*`, `CYBER_SOURCE_*`) when the gateway is first used.
+   * `WAVE_PAY_MINI_APP_*`, `AYA_PAY_*`, `YOMA_MMQR_*`, `CYBER_SOURCE_*` and
+   * `MYANMAR_PAYMENTS_HTTP_TIMEOUT`) when the gateway is first used.
    */
   static fromEnv(
     env: EnvSource = defaultEnv(),
@@ -66,6 +78,7 @@ export class MyanmarPayments {
     Object.assign(payments.sources, {
       kbzPay: () => KbzPayConfig.fromEnv(env),
       wavePay: () => WavePayConfig.fromEnv(env),
+      wavePayMiniApp: () => WavePayMiniAppConfig.fromEnv(env),
       ayaPay: () => AyaPayConfig.fromEnv(env),
       yomaMmqr: () => YomaMmqrConfig.fromEnv(env),
       cyberSource: () => CyberSourceConfig.fromEnv(env),
@@ -85,6 +98,14 @@ export class MyanmarPayments {
   wavePay(): WavePay {
     return (this.wavePayGateway ??= new WavePay(
       resolve(this.sources.wavePay, WavePayConfig, 'wave_pay', 'merchant_id'),
+      this.options,
+    ));
+  }
+
+  /** The Wave Pay Mini App gateway. Throws a `ConfigurationError` when it is not configured. */
+  wavePayMiniApp(): WavePayMiniApp {
+    return (this.wavePayMiniAppGateway ??= new WavePayMiniApp(
+      resolve(this.sources.wavePayMiniApp, WavePayMiniAppConfig, 'wave_pay_mini_app', 'client_id'),
       this.options,
     ));
   }

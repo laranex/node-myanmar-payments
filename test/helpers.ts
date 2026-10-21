@@ -8,6 +8,7 @@ import type {
   FetchFunction,
   KbzPayConfigOptions,
   WavePayConfigOptions,
+  WavePayMiniAppConfigOptions,
   YomaMmqrConfigOptions,
 } from '../src/index.js';
 
@@ -128,6 +129,17 @@ export const gatewayConfig = {
     baseUrl: 'https://payments.wavemoney.io',
     baseRedirectUrl: 'https://payments.wavemoney.io',
     timeToLiveSeconds: 300,
+    timeoutSeconds: 30,
+    ...overrides,
+  }),
+  wavePayMiniApp: (
+    overrides: Partial<WavePayMiniAppConfigOptions> = {},
+  ): WavePayMiniAppConfigOptions => ({
+    clientId: 'client',
+    clientSecret: 'client-secret',
+    miniAppId: 'MINI456',
+    secretKey: 'test-secret',
+    baseUrl: 'https://api.wavemoney.io:8100',
     timeoutSeconds: 30,
     ...overrides,
   }),

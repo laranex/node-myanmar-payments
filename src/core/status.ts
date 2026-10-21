@@ -59,7 +59,7 @@ export function resolveStatus(
 /**
  * How the customer completes a payment after it has been initiated.
  */
-export type PaymentFlow = 'redirect' | 'form' | 'qr' | 'app';
+export type PaymentFlow = 'redirect' | 'form' | 'qr' | 'app' | 'mini_app';
 
 /** The payment flows. */
 export const PaymentFlow = Object.freeze({
@@ -71,4 +71,6 @@ export const PaymentFlow = Object.freeze({
   Qr: 'qr',
   /** Hand a signed payload to your mobile app, which opens the wallet SDK. */
   App: 'app',
+  /** Hand a signed payload to your mini app page, which passes it to the wallet's JavaScript SDK. */
+  MiniApp: 'mini_app',
 } as const);

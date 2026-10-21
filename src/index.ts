@@ -3,6 +3,7 @@ export * from './aya-pay/index.js';
 export * from './cyber-source/index.js';
 export * from './kbz-pay/index.js';
 export * from './wave-pay/index.js';
+export * from './wave-pay-mini-app/index.js';
 export * from './yoma-mmqr/index.js';
 export {
   MyanmarPayments,

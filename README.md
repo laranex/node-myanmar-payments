@@ -4,7 +4,7 @@
 [![Tests](https://github.com/laranex/node-myanmar-payments/actions/workflows/tests.yml/badge.svg)](https://github.com/laranex/node-myanmar-payments/actions/workflows/tests.yml)
 [![License](https://img.shields.io/npm/l/@laranex/myanmar-payments.svg?style=flat-square)](LICENSE.md)
 
-Node.js SDK for Myanmar payment gateways: KBZ Pay, Wave Pay, AYA Pay, Yoma MMQR and CyberSource. Typed requests and results, exact amounts, no runtime dependencies. Built for humans and AI agents.
+Node.js SDK for Myanmar payment gateways: KBZ Pay, Wave Pay, Wave Pay Mini App, AYA Pay, Yoma MMQR and CyberSource. Typed requests and results, exact amounts, no runtime dependencies. Built for humans and AI agents.
 
 Every Myanmar payment gateway signs its requests and callbacks its own way, reports its own status codes and has its own rules for amounts. Node Myanmar Payments handles all of that behind one typed API for Node.js and any framework: build the payment data, start the payment, then verify the callback the gateway sends back.
 
@@ -52,6 +52,7 @@ The full documentation lives at **[laranex.vercel.app/node-myanmar-payments](htt
 - [Testing](https://laranex.vercel.app/node-myanmar-payments/testing): faking gateway calls and replaying signed callbacks in your tests
 - [KBZ Pay](https://laranex.vercel.app/node-myanmar-payments/drivers/kbz-pay): PWA redirect, QR and in-app payments, status checks and callbacks
 - [Wave Pay](https://laranex.vercel.app/node-myanmar-payments/drivers/wave-pay): redirect payments with line items and verified callbacks
+- [Wave Pay Mini App](https://laranex.vercel.app/node-myanmar-payments/drivers/wave-pay-mini-app): access tokens, signed payment payloads for Wave's JavaScript SDK and verified callbacks
 - [AYA Pay](https://laranex.vercel.app/node-myanmar-payments/drivers/aya-pay): hosted checkout for AYA Pay, other wallets and cards, with status checks
 - [Yoma MMQR](https://laranex.vercel.app/node-myanmar-payments/drivers/yoma-mmqr): QR images, QR renewal, status checks and verified callbacks
 - [CyberSource](https://laranex.vercel.app/node-myanmar-payments/drivers/cyber-source): Secure Acceptance card payments through a signed hosted checkout form

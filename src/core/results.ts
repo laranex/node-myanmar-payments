@@ -1,9 +1,10 @@
+import type { Amount } from './amount.js';
 import type { PaymentFlow } from './status.js';
 
 type Raw = Readonly<Record<string, unknown>>;
 
 /** Returned when a payment is initiated. Each flow has its own class; switch on `flow`. */
-export type PaymentResult = RedirectPayment | FormPayment | QrPayment | AppPayment;
+export type PaymentResult = RedirectPayment | FormPayment | QrPayment | AppPayment | MiniAppPayment;
 
 /**
  * Send the customer's browser to `url` to complete the payment.
@@ -184,6 +185,123 @@ export class AppPayment {
       signType: this.signType,
     };
   }
+}
+
+/** One line item of a {@link MiniAppPayment}. */
+export interface MiniAppPaymentItem {
+  /** The item name. */
+  readonly name: string;
+  /** The item amount in whole units. */
+  readonly amount: Amount;
+}
+
+/**
+ * The object a mini app page passes to the wallet's JavaScript SDK (Wave Pay Mini App:
+ * `WaveJsSDK.paymentModule.makePayment(payload)`), in Wave's key order with amounts as integers.
+ */
+export interface MiniAppPaymentPayload {
+  amount: number;
+  miniAppID: string;
+  merchantRefID: string;
+  orderID: string;
+  callBackUrl: string;
+  hashValue: string;
+  items: { name: string; amount: number }[];
+}
+
+/**
+ * Pass `JSON.stringify(payment)` (or {@link MiniAppPayment.toJsonString}) to your mini app page,
+ * which hands the object unchanged to the wallet's JavaScript SDK (Wave Pay Mini App:
+ * `WaveJsSDK.paymentModule.makePayment(payload)`). No request is sent to the gateway.
+ */
+export class MiniAppPayment {
+  /** Always `mini_app`. */
+  readonly flow: 'mini_app' = 'mini_app' satisfies PaymentFlow;
+  /** Your order id (`orderID`). */
+  readonly orderId: string;
+  /** The signed total, in whole units. */
+  readonly amount: Amount;
+  /** The configured mini app id (`miniAppID`). */
+  readonly miniAppId: string;
+  /** Your reference for this attempt (`merchantRefID`). Store it with the order. */
+  readonly merchantReferenceId: string;
+  /** The signed callback URL (`callBackUrl`). */
+  readonly callbackUrl: string;
+  /** The payload's hash (`hashValue`). */
+  readonly hashValue: string;
+  /** The line items. */
+  readonly items: readonly MiniAppPaymentItem[];
+
+  constructor(init: {
+    orderId: string;
+    amount: Amount;
+    miniAppId: string;
+    merchantReferenceId: string;
+    callbackUrl: string;
+    hashValue: string;
+    items: readonly MiniAppPaymentItem[];
+  }) {
+    this.orderId = init.orderId;
+    this.amount = init.amount;
+    this.miniAppId = init.miniAppId;
+    this.merchantReferenceId = init.merchantReferenceId;
+    this.callbackUrl = init.callbackUrl;
+    this.hashValue = init.hashValue;
+    this.items = Object.freeze(init.items.map((item) => Object.freeze({ ...item })));
+  }
+
+  /**
+   * Exactly the object `makePayment` takes: `amount`, `miniAppID`, `merchantRefID`, `orderID`,
+   * `callBackUrl`, `hashValue` and `items` (`name`, `amount`), with the amounts as numbers. An
+   * amount above `Number.MAX_SAFE_INTEGER` is written with every digit through `JSON.rawJSON`
+   * (Node.js 21+); where that is missing it throws a `RangeError`: use {@link toJsonString}.
+   */
+  toJSON(): MiniAppPaymentPayload {
+    return {
+      amount: integer(this.amount),
+      miniAppID: this.miniAppId,
+      merchantRefID: this.merchantReferenceId,
+      orderID: this.orderId,
+      callBackUrl: this.callbackUrl,
+      hashValue: this.hashValue,
+      items: this.items.map((item) => ({ name: item.name, amount: integer(item.amount) })),
+    };
+  }
+
+  /**
+   * The `makePayment` object as compact JSON text, with the amounts as JSON integers holding every
+   * digit (no integer limit) on every Node.js version.
+   */
+  toJsonString(): string {
+    const items = this.items
+      .map((item) => `{"name":${JSON.stringify(item.name)},"amount":${item.amount.wholePart()}}`)
+      .join(',');
+    return (
+      `{"amount":${this.amount.wholePart()}` +
+      `,"miniAppID":${JSON.stringify(this.miniAppId)}` +
+      `,"merchantRefID":${JSON.stringify(this.merchantReferenceId)}` +
+      `,"orderID":${JSON.stringify(this.orderId)}` +
+      `,"callBackUrl":${JSON.stringify(this.callbackUrl)}` +
+      `,"hashValue":${JSON.stringify(this.hashValue)}` +
+      `,"items":[${items}]}`
+    );
+  }
+}
+
+/** A whole amount as a number, or as raw JSON digits when it is beyond a safe integer. */
+function integer(amount: Amount): number {
+  const digits = amount.wholePart();
+  const value = Number(digits);
+  if (Number.isSafeInteger(value)) {
+    return value;
+  }
+  const rawJSON = (JSON as { rawJSON?: (text: string) => unknown }).rawJSON;
+  if (typeof rawJSON !== 'function') {
+    throw new RangeError(
+      `The amount ${digits} is too large for a JavaScript number; use toJsonString() to keep every digit.`,
+    );
+  }
+  return rawJSON(digits) as number;
 }
 
 const HTML_ESCAPES: Record<string, string> = {

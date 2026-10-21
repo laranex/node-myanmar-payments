@@ -14,6 +14,8 @@ import {
   MyanmarPayments,
   WavePay,
   WavePayConfig,
+  WavePayMiniApp,
+  WavePayMiniAppConfig,
   YomaMmqr,
   YomaMmqrConfig,
 } from '../src/index.js';
@@ -23,6 +25,7 @@ import { caught, FakeFetch, fixture, gatewayConfig } from './helpers.js';
 const full = {
   kbzPay: gatewayConfig.kbzPay(),
   wavePay: gatewayConfig.wavePay(),
+  wavePayMiniApp: gatewayConfig.wavePayMiniApp(),
   ayaPay: gatewayConfig.ayaPay(),
   yomaMmqr: gatewayConfig.yomaMmqr(),
   cyberSource: gatewayConfig.cyberSource(),
@@ -35,6 +38,8 @@ describe('MyanmarPayments', () => {
     expect(payments.kbzPay()).toBe(payments.kbzPay());
     expect(payments.wavePay()).toBeInstanceOf(WavePay);
     expect(payments.wavePay()).toBe(payments.wavePay());
+    expect(payments.wavePayMiniApp()).toBeInstanceOf(WavePayMiniApp);
+    expect(payments.wavePayMiniApp()).toBe(payments.wavePayMiniApp());
     expect(payments.ayaPay()).toBeInstanceOf(AyaPay);
     expect(payments.ayaPay()).toBe(payments.ayaPay());
     expect(payments.yomaMmqr()).toBeInstanceOf(YomaMmqr);
@@ -51,6 +56,7 @@ describe('MyanmarPayments', () => {
   it.each([
     ['kbzPay', 'kbz_pay', 'app_id'],
     ['wavePay', 'wave_pay', 'merchant_id'],
+    ['wavePayMiniApp', 'wave_pay_mini_app', 'client_id'],
     ['ayaPay', 'aya_pay', 'app_key'],
     ['yomaMmqr', 'yoma_mmqr', 'merchant_id'],
     ['cyberSource', 'cyber_source', 'profile_id'],
@@ -78,6 +84,7 @@ describe('MyanmarPayments', () => {
     const payments = MyanmarPayments.fromEnv(withoutCyberSource);
     expect(payments.kbzPay().config.appId).toBe('kp123');
     expect(payments.wavePay().config.merchantName).toBe('Shop');
+    expect(payments.wavePayMiniApp().config.miniAppId).toBe('MINI456');
     expect(payments.ayaPay().config.appKey).toBe('app-key');
     expect(payments.yomaMmqr().config.clientId).toBe('client');
     expect(caught(() => payments.cyberSource())).toMatchObject({
@@ -110,6 +117,22 @@ describe('MyanmarPayments', () => {
       '/payment-gateway/v1rc/api/payment/check-status',
       '/payment-gateway/v1rc/api/payment/check-status',
     ]);
+
+    const miniApp = new FakeFetch({ body: { access_token: 'mini', expires_in: 3600 } });
+    const config = { wavePayMiniApp: { ...full.wavePayMiniApp, baseUrl: 'https://wave.test' } };
+    expect(
+      await new MyanmarPayments(config, { fetch: miniApp.fetch, tokenCache })
+        .wavePayMiniApp()
+        .accessToken(),
+    ).toBe('mini');
+    expect(
+      await new MyanmarPayments(config, { fetch: miniApp.fetch, tokenCache })
+        .wavePayMiniApp()
+        .accessToken(),
+    ).toBe('mini');
+    expect(miniApp.requests.map((request) => request.path)).toEqual([
+      '/auth/v1/external-utility/token',
+    ]);
   });
 });
 
@@ -135,6 +158,8 @@ describe('agent skill', () => {
       'FormPayment',
       'QrPayment',
       'AppPayment',
+      'MiniAppPayment',
+      'WavePayMiniApp',
       'PaymentStatus',
       'MemoryTokenCache',
       'ConfigurationError',
@@ -184,7 +209,13 @@ describe('optionsFromEnv', () => {
   });
 
   it('builds the same configuration as fromEnv, and merges per key', () => {
-    for (const config of [KbzPayConfig, WavePayConfig, AyaPayConfig, YomaMmqrConfig]) {
+    for (const config of [
+      KbzPayConfig,
+      WavePayConfig,
+      AyaPayConfig,
+      YomaMmqrConfig,
+      WavePayMiniAppConfig,
+    ]) {
       expect(new (config as typeof KbzPayConfig)(config.optionsFromEnv(env) as never)).toEqual(
         config.fromEnv(env),
       );

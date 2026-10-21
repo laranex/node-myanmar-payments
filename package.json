@@ -1,7 +1,7 @@
 {
   "name": "@laranex/myanmar-payments",
   "version": "4.0.0-dev.17",
-  "description": "Node.js SDK for Myanmar payment gateways: KBZ Pay, Wave Pay, AYA Pay, Yoma MMQR and CyberSource. Typed requests and results, exact amounts, no runtime dependencies.",
+  "description": "Node.js SDK for Myanmar payment gateways: KBZ Pay, Wave Pay, Wave Pay Mini App, AYA Pay, Yoma MMQR and CyberSource. Typed requests and results, exact amounts, no runtime dependencies.",
   "keywords": [
     "laranex",
     "node-myanmar-payments",
@@ -10,6 +10,7 @@
     "payment-gateway",
     "kbzpay",
     "wave-pay",
+    "wave-pay-mini-app",
     "aya-pay",
     "yoma",
     "mmqr",
@@ -58,6 +59,16 @@
         "default": "./dist/cjs/wave-pay/index.js"
       }
     },
+    "./wave-pay-mini-app": {
+      "import": {
+        "types": "./dist/esm/wave-pay-mini-app/index.d.ts",
+        "default": "./dist/esm/wave-pay-mini-app/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/wave-pay-mini-app/index.d.ts",
+        "default": "./dist/cjs/wave-pay-mini-app/index.js"
+      }
+    },
     "./aya-pay": {
       "import": {
         "types": "./dist/esm/aya-pay/index.d.ts",
@@ -100,6 +111,9 @@
       ],
       "wave-pay": [
         "./dist/cjs/wave-pay/index.d.ts"
+      ],
+      "wave-pay-mini-app": [
+        "./dist/cjs/wave-pay-mini-app/index.d.ts"
       ],
       "aya-pay": [
         "./dist/cjs/aya-pay/index.d.ts"
