@@ -150,18 +150,67 @@ describe('WavePayMiniApp.accessToken', () => {
     expect(await gateway(empty, blank as never).accessToken()).toBe('three');
   });
 
-  it('passes the abort signal to the request', async () => {
-    const controller = new AbortController();
-    controller.abort();
-    const fetch = vi.fn((_url: string, init: RequestInit) =>
-      Promise.reject(init.signal?.reason as Error),
+  it('shares one in-flight token request between concurrent callers', async () => {
+    const fake = new FakeFetch({ body: { access_token: 'shared', expires_in: 3600 } });
+    const miniApp = gateway(fake);
+    const tokens = await Promise.all([
+      miniApp.accessToken(),
+      miniApp.accessToken(),
+      miniApp.accessToken(),
+    ]);
+    expect(tokens).toEqual(['shared', 'shared', 'shared']);
+    expect(fake.requests).toHaveLength(1);
+
+    const failing = gateway(
+      new FakeFetch({ status: 500, body: 'down' }, { body: { access_token: 'next' } }),
+    );
+    const errors = await Promise.all([
+      rejected(failing.accessToken()),
+      rejected(failing.accessToken()),
+    ]);
+    expect(errors[0]).toBeInstanceOf(ApiError);
+    expect(errors[1]).toBe(errors[0]);
+    expect(await failing.accessToken()).toBe('next');
+  });
+
+  it("lets a caller's signal stop only its own wait, not the shared request", async () => {
+    let release: (response: Response) => void = () => undefined;
+    const fetch = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          expect(init.signal?.aborted).toBe(false);
+          release = resolve;
+        }),
     );
     const miniApp = new WavePayMiniApp(gatewayConfig.wavePayMiniApp(), { fetch });
-    const error = await rejected(miniApp.accessToken({ signal: controller.signal }));
+    const controller = new AbortController();
+    const aborted = miniApp.accessToken({ signal: controller.signal });
+    const other = miniApp.accessToken();
+    const signaled = miniApp.accessToken({ signal: new AbortController().signal });
+    controller.abort(new Error('caller gone'));
+
+    const error = await rejected(aborted);
     expect(error).toBeInstanceOf(ApiError);
-    expect((error as ApiError).message).toMatch(
-      /^Could not reach https:\/\/api\.wavemoney\.io:8100/,
+    expect((error as ApiError).message).toBe(
+      'Could not reach https://api.wavemoney.io:8100/auth/v1/external-utility/token: caller gone',
     );
+    expect((error as ApiError).cause).toBeInstanceOf(Error);
+
+    release(new Response('{"access_token":"tok"}', { status: 200 }));
+    expect(await other).toBe('tok');
+    expect(await signaled).toBe('tok');
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    const early = new AbortController();
+    early.abort('stop');
+    const cachedMiss = new WavePayMiniApp(gatewayConfig.wavePayMiniApp(), {
+      fetch: new FakeFetch({ body: { access_token: 'later' } }).fetch,
+    });
+    expect(await rejected(cachedMiss.accessToken({ signal: early.signal }))).toMatchObject({
+      message: 'Could not reach https://api.wavemoney.io:8100/auth/v1/external-utility/token: stop',
+      cause: 'stop',
+    });
+    expect(await cachedMiss.accessToken()).toBe('later');
   });
 
   it('reports a failed token request', async () => {

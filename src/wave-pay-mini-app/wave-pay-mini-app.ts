@@ -187,6 +187,7 @@ export class WavePayMiniApp {
   readonly signer: WavePayMiniAppSigner;
   private readonly transport: Transport;
   private readonly cache: TokenCache;
+  private pendingToken: Promise<string> | undefined;
 
   constructor(
     config: WavePayMiniAppConfig | WavePayMiniAppConfigOptions,
@@ -275,22 +276,25 @@ export class WavePayMiniApp {
    * `access_token`.
    */
   async accessToken(options: RequestOptions = {}): Promise<string> {
-    const key = this.tokenCacheKey();
-    const cached = await this.cache.get(key);
+    const cached = await this.cache.get(this.tokenCacheKey());
     if (typeof cached === 'string' && cached !== '') {
       return cached;
     }
+    // Concurrent calls share one token request; it ignores any one caller's signal so aborting
+    // that caller does not fail the others (the client timeout still applies). The signal only
+    // stops this caller waiting.
+    this.pendingToken ??= this.fetchToken().finally(() => {
+      this.pendingToken = undefined;
+    });
+    return waitFor(this.pendingToken, options.signal, this.tokenUrl());
+  }
 
-    const response = await this.transport.postForm(
-      `${this.config.baseUrl}/auth/v1/external-utility/token`,
-      {
-        client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
-        grant_type: 'client_credentials',
-      },
-      {},
-      options.signal,
-    );
+  private async fetchToken(): Promise<string> {
+    const response = await this.transport.postForm(this.tokenUrl(), {
+      client_id: this.config.clientId,
+      client_secret: this.config.clientSecret,
+      grant_type: 'client_credentials',
+    });
 
     const body = response.json();
     const token = get(body, 'access_token');
@@ -313,7 +317,11 @@ export class WavePayMiniApp {
     // The leading digits of `expires_in` after any whitespace; missing, non-numeric or 0 means an
     // hour.
     const expiresIn = Number(/^[ \t\n\v\f\r]*(\d+)/.exec(get(body, 'expires_in'))?.[1] ?? 0);
-    await this.cache.set(key, token, Math.max(60, (expiresIn > 0 ? expiresIn : 3600) - 60));
+    await this.cache.set(
+      this.tokenCacheKey(),
+      token,
+      Math.max(60, (expiresIn > 0 ? expiresIn : 3600) - 60),
+    );
     return token;
   }
 
@@ -410,7 +418,40 @@ export class WavePayMiniApp {
     });
   }
 
+  private tokenUrl(): string {
+    return `${this.config.baseUrl}/auth/v1/external-utility/token`;
+  }
+
   private tokenCacheKey(): string {
     return `${WavePayMiniApp.TOKEN_CACHE_PREFIX}${sha256Hex(`${this.config.baseUrl}|${this.config.clientId}`)}`;
   }
+}
+
+/**
+ * `promise`, or an `ApiError` as soon as `signal` aborts (like an aborted request), without
+ * canceling the shared work behind `promise`.
+ */
+function waitFor<T>(promise: Promise<T>, signal: AbortSignal | undefined, url: string): Promise<T> {
+  if (signal === undefined) {
+    return promise;
+  }
+  return new Promise<T>((resolve, reject) => {
+    const abort = (): void => {
+      const reason: unknown = signal.reason;
+      reject(
+        new ApiError(
+          `Could not reach ${url}: ${reason instanceof Error ? reason.message : String(reason)}`,
+          { cause: reason },
+        ),
+      );
+    };
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(resolve, reject).finally(() => {
+      signal.removeEventListener('abort', abort);
+    });
+  });
 }
